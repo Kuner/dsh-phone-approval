@@ -1,0 +1,21 @@
+- insert:
+    - id: phone-approval
+      name: dsh-phone-approval
+      # Every field is optional; the plugin's settings page (Plugins → DSH phone approval)
+      # edits the common ones. Defaults:
+      #
+      #   server: https://api.day.app      # Bark server (self-hosted bark-server works too)
+      #   credential: DSH_BARK_KEY         # credential reference holding the Bark device key
+      #   events: { approval: true, question: true, completed: true, error: true }
+      #   minTurnSeconds: 0                # skip "finished" pushes for shorter turns
+      #   includeDetails: true             # reasons / questions / previews in push bodies
+      #   openUrl: ''                      # URL opened by non-approval notifications
+      #   group: DSH
+      #   phoneApproval:
+      #     enabled: true
+      #     publicUrl: ''                  # empty = https://<MagicDNS name>:<httpsPort>/
+      #     httpsPort: 8443                # tailnet HTTPS port published by `tailscale serve`
+      #     port: 47391                    # loopback approval server
+      #     adminPort: 47392               # loopback settings-page API (never published)
+      #     ttlSeconds: 600                # lifetime of each phone approval link
+      config: {}

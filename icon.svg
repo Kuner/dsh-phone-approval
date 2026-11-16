@@ -1,0 +1,16 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="10" y="6" width="14" height="24" rx="3.2" fill="url(#barkNotifyBody)" fill-opacity="0.85" />
+  <rect x="15" y="26.6" width="4" height="1.4" rx="0.7" fill="#FFFFFF" fill-opacity="0.9" />
+  <path d="M23.5 9.2C21.3 9.2 19.7 10.9 19.7 13.1V15.3L18.6 17.1H28.4L27.3 15.3V13.1C27.3 10.9 25.7 9.2 23.5 9.2Z" fill="url(#barkNotifyBell)" stroke="#FFFFFF" stroke-width="1.2" stroke-linejoin="round" />
+  <path d="M22.1 18.4C22.4 19.2 22.9 19.6 23.5 19.6C24.1 19.6 24.6 19.2 24.9 18.4" stroke="#F59E0B" stroke-width="1.4" stroke-linecap="round" />
+  <defs>
+    <linearGradient id="barkNotifyBody" x1="17" y1="6" x2="17" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7AC2FF" />
+      <stop offset="1" stop-color="#4A65E8" />
+    </linearGradient>
+    <linearGradient id="barkNotifyBell" x1="23.5" y1="9.2" x2="23.5" y2="17.1" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCD34D" />
+      <stop offset="1" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+</svg>
