@@ -64,6 +64,9 @@ const DEFAULTS = {
     questions: true,
     // Questions such as release gates can wait for hours, so their links live longer.
     questionTtlSeconds: 21600,
+    // Right after a start or reload the approval link is not known yet; a request
+    // arriving then waits this long for it before falling back to a plain notification.
+    readyTimeoutMs: 8000,
   },
 }
 
@@ -116,16 +119,6 @@ function assistantText(message) {
     .filter(part => part && part.type === 'text' && typeof part.text === 'string')
     .map(part => part.text)
     .join('\n')
-}
-
-function questionText(rawArguments) {
-  try {
-    const parsed = JSON.parse(rawArguments)
-    const questions = Array.isArray(parsed?.questions) ? parsed.questions : []
-    return questions.map(q => q?.question).filter(q => typeof q === 'string').join(' / ')
-  } catch {
-    return ''
-  }
 }
 
 function errorText(reason) {
@@ -359,16 +352,33 @@ export function apply(ctx, rawConfig) {
     return tailscale
   }
 
+  // One Tailscale check at a time; startup, the timer and waiting requests share it.
+  let refreshing
+  const refreshOnce = () => (refreshing ??= refreshTailscale().finally(() => { refreshing = undefined }))
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)))
+
+  /** Wait (bounded) until approval links can be issued; resolves whether they can. */
+  const whenPhoneReady = async () => {
+    if (phone.available) return true
+    if (!phoneConfig.enabled || disposed) return false
+    const deadline = Date.now() + phoneConfig.readyTimeoutMs
+    while (!phone.ready && !disposed && Date.now() < deadline) await sleep(50)
+    if (!phone.available && phone.ready && !disposed && Date.now() < deadline) {
+      await Promise.race([refreshOnce(), sleep(deadline - Date.now())])
+    }
+    return phone.available
+  }
+
   const phoneActive = () => phoneConfig.enabled && config.events.approval && phone.available
-  const phoneQuestionsActive = () => phoneConfig.enabled && phoneConfig.questions && config.events.question && phone.available
+  const questionsHandled = phoneConfig.enabled && phoneConfig.questions
   // Question links whose tool call already returned "pending": answered later through userQuestions.answer().
   const continuedQuestions = new Map()
 
   if (phoneConfig.enabled) {
     ctx.effect(() => {
       phone.start()
-      void refreshTailscale()
-      const timer = setInterval(() => { void refreshTailscale() }, TAILSCALE_REFRESH_MS)
+      void refreshOnce()
+      const timer = setInterval(() => { void refreshOnce() }, TAILSCALE_REFRESH_MS)
       timer.unref?.()
       return () => {
         clearInterval(timer)
@@ -377,11 +387,38 @@ export function apply(ctx, rawConfig) {
     })
   }
 
+  const plainApprovalPush = ({ session, toolName, reason }) => {
+    const text = config.includeDetails ? clip(stripMarkdown(reason ?? ''), 160) : ''
+    const who = session?.header?.origin === 'subagent' ? '（子 agent）' : ''
+    send({
+      title: `🔐 需要审批${who}：${session ? sessionLabel(session) : 'DSH'}`,
+      body: [`工具：${toolName ?? '未知'}`, text].filter(Boolean).join('\n'),
+      level: 'timeSensitive',
+    })
+  }
+
+  const plainQuestionPush = (session, questions) => {
+    const text = config.includeDetails
+      ? clip(stripMarkdown(questions.map(q => q?.question).filter(q => typeof q === 'string').join(' / ')), 160)
+      : ''
+    send({
+      title: `❓ 等待你回答：${sessionLabel(session)}`,
+      body: text || 'agent 正在等待你的回答',
+      level: 'timeSensitive',
+    })
+  }
+
   const handleApproval = async (req, next) => {
-    if (disposed || !phoneActive() || (await resolveKey()) === undefined) return next()
+    if (disposed || !config.events.approval) return next()
     const session = req.agent?.session
     const original = req.signal
     if (original?.aborted) return next()
+    if (!(await whenPhoneReady()) || original?.aborted || disposed) {
+      // No link can be issued (Tailscale off, server not listening): still tell the phone.
+      if (!disposed && !original?.aborted) plainApprovalPush({ session, toolName: req.toolName, reason: req.reason })
+      return next()
+    }
+    if ((await resolveKey()) === undefined) return next()
 
     const call = session ? sessions.get(session.id)?.calls.get(req.callId) : undefined
     const isSubagent = session?.header?.origin === 'subagent'
@@ -459,10 +496,14 @@ export function apply(ctx, rawConfig) {
 
   const handleQuestion = async (req, next) => {
     const agent = req.agent
-    if (disposed || !phoneQuestionsActive() || agent === undefined || !Array.isArray(req.questions)
-      || (await resolveKey()) === undefined) return next()
+    if (disposed || !questionsHandled || !config.events.question || agent === undefined || !Array.isArray(req.questions)) return next()
     const original = req.signal
     if (original?.aborted) return next()
+    if (!(await whenPhoneReady()) || original?.aborted || disposed) {
+      if (!disposed && !original?.aborted) plainQuestionPush(agent.session, req.questions)
+      return next()
+    }
+    if ((await resolveKey()) === undefined) return next()
 
     const session = agent.session
     const label = sessionLabel(session)
@@ -770,29 +811,20 @@ export function apply(ctx, rawConfig) {
         return
       }
       case 'approval/asked': {
-        // With phone approval ready, the waterfall listener sends the push with a link.
-        if (!config.events.approval || phoneActive()) return
-        const reason = config.includeDetails ? clip(stripMarkdown(data.reason ?? ''), 160) : ''
-        const who = isSubagent ? '（子 agent）' : ''
-        send({
-          title: `🔐 需要审批${who}：${sessionLabel(session)}`,
-          body: [`工具：${data.toolName ?? '未知'}`, reason].filter(Boolean).join('\n'),
-          level: 'timeSensitive',
-        })
+        // With phone approval configured, the waterfall listener sends the push (with a link when it can).
+        if (!config.events.approval || phoneConfig.enabled) return
+        plainApprovalPush({ session, toolName: data.toolName, reason: data.reason })
         return
       }
       case 'tool/call': {
         const calls = stateOf(session).calls
         calls.set(data.callId, { name: data.name, arguments: data.arguments })
         if (calls.size > MAX_TRACKED_CALLS) calls.delete(calls.keys().next().value)
-        // With phone questions ready, the question listener sends the push with a link.
-        if (!config.events.question || !QUESTION_TOOLS.has(data.name) || phoneQuestionsActive()) return
-        const text = config.includeDetails ? clip(stripMarkdown(questionText(data.arguments)), 160) : ''
-        send({
-          title: `❓ 等待你回答：${sessionLabel(session)}`,
-          body: text || 'agent 正在等待你的回答',
-          level: 'timeSensitive',
-        })
+        // With phone questions configured, the question listener sends the push (with a link when it can).
+        if (!config.events.question || !QUESTION_TOOLS.has(data.name) || questionsHandled) return
+        let questions = []
+        try { questions = JSON.parse(data.arguments)?.questions ?? [] } catch {}
+        plainQuestionPush(session, Array.isArray(questions) ? questions : [])
         return
       }
       case 'turn/end': {

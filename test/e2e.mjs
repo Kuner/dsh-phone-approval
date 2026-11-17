@@ -111,7 +111,23 @@ const ctx = {
 }
 
 apply(ctx, { phoneApproval: { publicUrl: `${ORIGIN}/`, port: PORT, adminPort: ADMIN_PORT, ttlSeconds: 2, questionTtlSeconds: 30 } })
-await sleep(300)
+
+// An approval that arrives while the plugin is still starting (link not known yet):
+// it must wait for the link instead of sending a plain notification.
+{
+  const earlySession = { id: 'early000', header: {} }
+  const before = pushes.length
+  handlers['session/event'](earlySession, { type: 'approval/asked', data: { toolName: 'bash', reason: 'early' }, time: 0 })
+  let resolveEarly
+  const early = handlers['approval/request'](
+    { agent: { session: earlySession }, toolName: 'bash', callId: 'early', reason: 'early', signal: new AbortController().signal },
+    () => new Promise((resolve) => { resolveEarly = resolve }))
+  await sleep(300)
+  const sentEarly = pushes.slice(before)
+  check('approval during startup sends exactly one push, with the phone link', sentEarly.length === 1 && String(sentEarly[0].url).startsWith(`${ORIGIN}/a/`))
+  resolveEarly('allowed-once')
+  check('startup approval still resolves', (await early) === 'allowed-once')
+}
 
 // --- admin token injection
 const ownerRows = []
@@ -383,6 +399,26 @@ check('unknown token 404', (await api('zzz')).status === 404)
   check('stray page links get HTML 404', stray.status === 404 && stray.headers.get('content-type').startsWith('text/html'))
 }
 check('stripMarkdown', stripMarkdown('## 标题\n**粗体** `code` [link](http://x)') === '标题\n粗体 code link')
+
+// No link can ever be issued (no publicUrl, Tailscale not mapping this port):
+// after the bounded wait, exactly one plain notification goes out.
+{
+  const h2 = {}
+  const fx2 = []
+  const ctx2 = { ...ctx, effect(f) { const d = f(); if (typeof d === 'function') fx2.push(d) }, on(name, f) { h2[name] = f }, inject() {} }
+  apply(ctx2, { phoneApproval: { publicUrl: '', port: 47397, adminPort: 47396, httpsPort: 59443, readyTimeoutMs: 600 } })
+  const s2 = { id: 'nolink00', header: {} }
+  const before = pushes.length
+  h2['session/event'](s2, { type: 'approval/asked', data: { toolName: 'bash', reason: 'x' }, time: 0 })
+  let nextCalled = false
+  const r2 = h2['approval/request']({ agent: { session: s2 }, toolName: 'bash', callId: 'n', reason: 'x', signal: new AbortController().signal },
+    () => { nextCalled = true; return Promise.resolve('rejected') })
+  check('no link available: falls back to the desktop answerer', (await r2) === 'rejected' && nextCalled)
+  await sleep(100)
+  const sent = pushes.slice(before).map(p => (p.ciphertext ? decryptPush(p, flowKey) : p))
+  check('no link available: exactly one plain approval push', sent.length === 1 && sent[0].title.startsWith('🔐') && sent[0].url === undefined)
+  for (const dispose of fx2) dispose()
+}
 
 for (const dispose of effects) dispose()
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`)
