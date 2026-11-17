@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "手机审批与通知",
-    "description": "当 agent 申请权限、向你提问、完成一轮任务或出错时，通过 Bark 推送到 iPhone；审批推送附带一次性链接，可在手机上拒绝，或用 Face ID（passkey）批准，手机与电脑谁先处理以谁为准，手机先处理时电脑上的审批框自动撤回。在本页下方设置 Bark key、发送测试推送、查看 Tailscale 与 Face ID 状态并调整选项。手机审批页由 tailscale serve 只发布到你的 tailnet，链接一次性有效、默认 10 分钟过期。工具名、审批原因、问题和回答预览会经过 Bark 服务器（默认 api.day.app），要执行的命令只在手机审批页显示。关闭插件即停止推送和手机审批。"
+    "description": "当 agent 申请权限、向你提问、完成一轮任务或出错时，通过 Bark 推送到 iPhone；审批推送附带一次性链接，可在手机上拒绝，或用 Face ID（passkey）批准，手机与电脑谁先处理以谁为准，手机先处理时电脑上的审批框自动撤回。在左侧边栏的「手机审批」页面设置 Bark key、发送测试推送、查看 Tailscale 与 Face ID 状态并调整选项。手机审批页由 tailscale serve 只发布到你的 tailnet，链接一次性有效、默认 10 分钟过期。工具名、审批原因、问题和回答预览会经过 Bark 服务器（默认 api.day.app），要执行的命令只在手机审批页显示。关闭插件即停止推送和手机审批。"
   }
 }

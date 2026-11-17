@@ -20,7 +20,7 @@ DeepSeek Harness（DSH）插件：把需要你处理的事件推送到 iPhone，
 - 手机与电脑谁先处理以谁为准；手机先处理时，电脑上的审批框自动撤回。
 - 链接一次性有效，默认 10 分钟过期，Face ID 连续失败 5 次作废；电脑上随时仍可处理。
 
-**设置页**：DSH → 插件 → 「手机审批与通知」。可以设置 Bark key、发测试推送、查看 Tailscale / HTTPS 转发 / Face ID 状态、一键开启 Tailscale 转发、重置 Face ID，以及调整通知选项。
+**设置页**：DSH 左侧边栏 → 「手机审批」。可以设置 Bark key、发测试推送、查看 Tailscale / HTTPS 转发 / Face ID 状态、一键开启 Tailscale 转发、重置 Face ID，以及调整通知选项。
 
 ## 安装
 
@@ -29,7 +29,7 @@ DeepSeek Harness（DSH）插件：把需要你处理的事件推送到 iPhone，
 1. 克隆本仓库：`git clone https://github.com/Kuner/dsh-phone-approval.git`
 2. DSH → **插件** → **添加插件** → 选择本地目录，指向克隆下来的目录（或让 agent 用 `plugin_manager install_bundle` 安装该目录）。
 3. 完全退出并重新打开 DSH（设置页需要页面重新加载才能连上插件后台）。
-4. 打开插件页面，按顺序完成：
+4. 点左侧边栏的「手机审批」，按顺序完成：
    1. iPhone 安装 [Bark](https://bark.day.app)（App Store 搜索 Bark），把 App 首页的推送链接粘贴到「Bark 推送」，点「发送测试推送」。
    2. Mac 和 iPhone 安装 [Tailscale](https://tailscale.com) 并登录同一个 tailnet；在 Tailscale 后台启用 MagicDNS 和 HTTPS 证书。
    3. 「HTTPS 转发」点「开启」（等价于 `tailscale serve --bg --https=8443 http://127.0.0.1:47391`）。
@@ -83,7 +83,7 @@ node test/e2e.mjs         # 端到端测试：模拟 DSH 上下文 + 软件 WebA
 | `page.js` | 手机审批页 HTML |
 | `admin.js` | 设置页用的本机管理接口 |
 | `tailscale.js` | Tailscale 状态检测与 `tailscale serve` |
-| `client.js` | DSH 插件页里的设置页（浏览器端） |
+| `client.js` | 左侧边栏入口与设置页（浏览器端） |
 
 修改插件代码后需要完全重启 DSH 才会加载新代码。
 

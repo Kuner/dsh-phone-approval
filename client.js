@@ -1,4 +1,4 @@
-// Browser half: the settings page shown on this bundle's page under Plugins.
+// Browser half: the plugin's own page, opened from its entry in the left sidebar.
 // It talks to the Host half through the loopback admin API whose URL and bearer
 // token the Host injects into owner pages as globalThis.__DSH_PHONE_APPROVAL_ADMIN__.
 
@@ -10,10 +10,14 @@ window.__ModuleLoader__.load({
     const { useState, useEffect, useCallback, useRef } = React
 
     const NS = 'phoneApproval'
-    const PACKAGE = 'dsh-phone-approval'
+    const PANEL_ID = 'phone-approval'
     const ADMIN_GLOBAL = '__DSH_PHONE_APPROVAL_ADMIN__'
 
     const zh = {
+      panel: '手机审批',
+      pageTitle: '手机审批与通知',
+      pageSubtitle: '把审批、提问、完成和出错推送到 iPhone，并在手机上用 Face ID 处理审批。',
+      refresh: '刷新',
       noAdmin: '无法连接插件后台。请完全退出并重新打开 DSH，让页面拿到新的连接信息。',
       loading: '正在读取状态…',
       loadFailed: '读取状态失败：',
@@ -73,6 +77,10 @@ window.__ModuleLoader__.load({
     }
 
     const en = {
+      panel: 'Phone approval',
+      pageTitle: 'Phone approval and notifications',
+      pageSubtitle: 'Push approvals, questions, finished turns and errors to your iPhone, and answer approvals there with Face ID.',
+      refresh: 'Refresh',
       noAdmin: 'Cannot reach the plugin backend. Quit DSH completely and reopen it so this page receives the new connection details.',
       loading: 'Loading status…',
       loadFailed: 'Could not load status: ',
@@ -132,6 +140,14 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
+.dpa-page { display:flex; flex-direction:column; width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); }
+.dpa-scroll { flex:1; min-height:0; overflow:auto; scrollbar-gutter:stable; }
+.dpa-content { max-width:960px; margin:0 auto; padding:0 clamp(24px, 4vw, 48px) 48px; }
+@media (max-width: 767px) { .dpa-content { padding-inline:20px; } }
+.dpa-heading { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px; padding-top:28px; margin-bottom:24px; }
+[data-platform='darwin'] .dpa-heading { padding-top:calc(28px + var(--dsh-frame-top-clearance, 0px)); }
+.dpa-heading-text { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.dpa-page-title { font-size:20px; line-height:28px; font-weight:500; margin:0; }
 .dpa-root { display:flex; flex-direction:column; gap:16px; color:var(--dsw-alias-label-primary); font-size:14px; line-height:1.5; }
 .dpa-card { background:var(--dsw-alias-settings-card-fill, var(--dsw-alias-bg-layer-2)); border:1px solid var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l2)); border-radius:var(--dsw-radius-lg, 12px); padding:16px; display:flex; flex-direction:column; gap:12px; }
 .dpa-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -402,13 +418,18 @@ window.__ModuleLoader__.load({
         }
       }, [])
       useEffect(() => { void reload() }, [reload])
+      const [refreshing, setRefreshing] = useState(false)
+      const refresh = async () => {
+        setRefreshing(true)
+        try { await reload() } finally { setRefreshing(false) }
+      }
       let body
       if (state.kind === 'no-admin') body = h('p', { className: 'dpa-msg bad' }, t('noAdmin'))
       else if (state.kind === 'loading') body = h('p', { className: 'dpa-msg' }, t('loading'))
       else if (state.kind === 'error') {
         body = h('div', { className: 'dpa-inline' },
           h('p', { className: 'dpa-msg bad' }, t('loadFailed') + state.error),
-          h('button', { type: 'button', className: 'dpa-btn small', onClick: () => { void reload() } }, t('retry')))
+          h('button', { type: 'button', className: 'dpa-btn small', onClick: () => { void refresh() } }, t('retry')))
       } else {
         body = [
           h(BarkCard, { key: 'bark', t, status: state.status, reload }),
@@ -416,18 +437,51 @@ window.__ModuleLoader__.load({
           h(OptionsCard, { key: `options-${JSON.stringify(state.status.config)}`, t, status: state.status, reload }),
         ]
       }
-      return h('div', { className: 'dpa-root' }, h('style', null, CSS), body)
+      return h('div', { className: 'dpa-page' },
+        h('style', null, CSS),
+        h('div', { className: 'dpa-scroll' },
+          h('div', { className: 'dpa-content' },
+            h('header', { className: 'dpa-heading' },
+              h('div', { className: 'dpa-heading-text' },
+                h('h1', { className: 'dpa-page-title' }, t('pageTitle')),
+                h('p', { className: 'dpa-hint' }, t('pageSubtitle'))),
+              h('button', {
+                type: 'button', className: 'dpa-btn', disabled: refreshing || state.kind === 'no-admin',
+                onClick: () => { void refresh() },
+              }, t('refresh'))),
+            h('div', { className: 'dpa-root' }, body))))
+    }
+
+    // Sidebar glyph: a phone outline with a check, drawn in the row's current color.
+    function PanelIcon({ size }) {
+      const edge = size || 16
+      return h('svg', {
+        width: edge, height: edge, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true,
+        stroke: 'currentColor', strokeWidth: 1.25, strokeLinecap: 'round', strokeLinejoin: 'round',
+      },
+      h('rect', { x: 3.5, y: 1.5, width: 9, height: 13, rx: 2 }),
+      h('path', { d: 'M7 12.25h2' }),
+      h('path', { d: 'M5.9 7.1l1.45 1.45L10.1 5.8' }))
     }
 
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'phone-approval: dictionaries')
-        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-          name: 'plugins.bundle.config',
-          key: PACKAGE,
+        const t = ctx.locale.bind(NS)
+        // A global page: the sidebar entry selects the `main` panel registered under the same id.
+        ctx.slots.inject('main', () => ctx.slots.register({
+          name: 'main',
+          key: PANEL_ID,
           locale: NS,
         }, SettingsPage))
+        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist',
+          id: PANEL_ID,
+          order: 20,
+          locale: NS,
+          label: () => t('panel'),
+        }, PanelIcon))
       },
     }
   },

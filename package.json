@@ -1,6 +1,6 @@
 {
   "name": "dsh-phone-approval",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "DeepSeek Harness plugin: Bark notifications for approvals, questions, finished turns and errors, plus Face ID phone approval over Tailscale.",
   "license": "MIT",
@@ -27,17 +27,22 @@
   ],
   "scripts": {
     "check": "node --check index.js && node --check admin.js && node --check phone-approval.js && node --check webauthn.js && node --check page.js && node --check tailscale.js && node --check client.js",
-    "test": "node test/e2e.mjs"
+    "test": "node test/e2e.mjs && node test/client-smoke.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-plugin-manager"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
     }
   }
 }

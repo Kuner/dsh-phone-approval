@@ -1,7 +1,7 @@
 - insert:
     - id: phone-approval
       name: dsh-phone-approval
-      # Every field is optional; the plugin's settings page (Plugins → DSH phone approval)
+      # Every field is optional; the plugin's settings page (left sidebar → Phone approval)
       # edits the common ones. Defaults:
       #
       #   server: https://api.day.app      # Bark server (self-hosted bark-server works too)
