@@ -87,6 +87,9 @@ const credentials = {
   },
   deleteRecord: async (key) => { records.delete(key) },
 }
+const lateAnswers = []
+let acceptLate = true
+const userQuestions = { answer: (agent, callId, answer) => { if (!acceptLate) return false; lateAnswers.push({ agent, callId, answer }); return true } }
 const edits = []
 const configEditor = { edit: async (entry, change) => { edits.push(change({ phoneApproval: { port: PORT } })) } }
 const handlers = {}
@@ -101,11 +104,12 @@ const ctx = {
   get: name => ({
     credentials,
     configEditor,
+    userQuestions,
     sessionTitle: { get: () => ({ title: '测试会话' }) },
   })[name],
 }
 
-apply(ctx, { phoneApproval: { publicUrl: `${ORIGIN}/`, port: PORT, adminPort: ADMIN_PORT, ttlSeconds: 2 } })
+apply(ctx, { phoneApproval: { publicUrl: `${ORIGIN}/`, port: PORT, adminPort: ADMIN_PORT, ttlSeconds: 2, questionTtlSeconds: 30 } })
 await sleep(300)
 
 // --- admin token injection
@@ -146,6 +150,7 @@ const api = (token, path = '', body, origin = ORIGIN) => realFetch(`${base}/api/
   : { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) })
   .then(async r => ({ status: r.status, json: await r.json() }))
 const session = { id: 'sess1234abcd', header: {} }
+const agent = { session }
 handlers['session/event'](session, { type: 'tool/call', data: { callId: 'c1', name: 'bash', arguments: JSON.stringify({ command: 'rm -rf build && npm run deploy', workdir: '/repo' }) }, time: 0 })
 
 function startApproval() {
@@ -210,6 +215,109 @@ a.resolveDesktop('unavailable')
 const raced = await Promise.race([a.result, sleep(300).then(() => 'still-waiting')])
 check('no desktop answerer keeps waiting for phone', raced === 'still-waiting')
 check('link expiry → unavailable', (await a.result) === 'unavailable' && (await api(t)).json.status === 'expired')
+
+// --- question flows (release-gate style ask_user_question)
+const GATE = [{
+  id: 'gate-053', header: '发布门禁 v2.26.0', question: '053 已合并。\n\n确认发布吗？',
+  options: [{ label: '确认发布，用默认值 (Recommended)', description: '运行 release.sh' }, { label: '先不发布' }],
+}]
+function startQuestion({ timed = false } = {}) {
+  const toolSignal = new AbortController()
+  const req = { questions: GATE, agent, signal: toolSignal.signal, ...(timed ? { wait: { callId: 'q-timed', timed: true } } : {}) }
+  let desktopSignal
+  let resolveDesktop
+  let rejectDesktop
+  const next = () => { desktopSignal = req.signal; return new Promise((res, rej) => { resolveDesktop = res; rejectDesktop = rej }) }
+  const result = handlers['user-questions/request'](req, next)
+  result.catch(() => {})
+  return { result, toolSignal, desktop: () => desktopSignal, resolveDesktop: v => resolveDesktop(v), rejectDesktop: e => rejectDesktop(e) }
+}
+const answerBody = (challenge, answers) => ({ decision: 'answer', answers, assertion: assert(challenge) })
+const GO = [{ id: 'gate-053', selected: ['确认发布，用默认值 (Recommended)'] }]
+
+const pushesBefore = pushes.length
+handlers['session/event'](session, { type: 'tool/call', data: { callId: 'q1', name: 'ask_user_question', arguments: JSON.stringify({ questions: GATE }) }, time: 0 })
+check('no plain question push when phone questions are ready', pushes.length === pushesBefore)
+
+let q = startQuestion()
+await sleep(50)
+t = tokenOf()
+check('question push carries link', pushes.at(-1).title.startsWith('❓') && pushes.at(-1).url.startsWith(`${ORIGIN}/a/`) && pushes.at(-1).body.includes('确认发布吗'))
+v = (await api(t)).json
+check('question view lists options', v.kind === 'question' && v.questions[0].options.length === 2 && v.enrolled === true && Boolean(v.challenge))
+check('answer without Face ID rejected', (await api(t, '/decide', { decision: 'answer', answers: GO })).status === 403)
+v = (await api(t)).json
+check('unknown option rejected', (await api(t, '/decide', answerBody(v.challenge, [{ id: 'gate-053', selected: ['随便发'] }]))).status === 400)
+check('empty answer rejected', (await api(t, '/decide', answerBody(v.challenge, [{ id: 'gate-053', selected: [] }]))).status === 400)
+check('two choices on single-select rejected', (await api(t, '/decide', answerBody(v.challenge, [{ id: 'gate-053', selected: ['先不发布', '确认发布，用默认值 (Recommended)'] }]))).status === 400)
+v = (await api(t)).json
+r = await api(t, '/decide', answerBody(v.challenge, GO))
+check('phone answer accepted', r.status === 200 && r.json.state.status === 'answered')
+check('waterfall returns the phone answer', JSON.stringify(await q.result) === JSON.stringify({ answers: GO }))
+check('desktop question withdrawn', q.desktop().aborted === true && q.toolSignal.signal.aborted === false)
+
+q = startQuestion()
+await sleep(50)
+t = tokenOf()
+v = (await api(t)).json
+r = await api(t, '/decide', answerBody(v.challenge, [{ id: 'gate-053', selected: [], custom: '等我看完日志再说' }]))
+check('custom text answer', r.status === 200 && (await q.result).answers[0].custom === '等我看完日志再说')
+
+q = startQuestion()
+await sleep(50)
+t = tokenOf()
+q.resolveDesktop({ answers: [{ id: 'gate-053', selected: ['先不发布'] }] })
+check('desktop answer wins', (await q.result).answers[0].selected[0] === '先不发布' && (await api(t)).json.status === 'elsewhere')
+
+q = startQuestion()
+await sleep(50)
+t = tokenOf()
+q.rejectDesktop(Object.assign(new Error('no answerer'), { code: 'NO_PROVIDER' }))
+await sleep(50)
+v = (await api(t)).json
+check('no desktop answerer keeps the phone link open', v.status === 'pending')
+await api(t, '/decide', answerBody(v.challenge, GO))
+check('phone answers when desktop is absent', JSON.stringify(await q.result) === JSON.stringify({ answers: GO }))
+
+// Timed question whose foreground window closed: the call returns pending, the phone answers later.
+q = startQuestion({ timed: true })
+await sleep(50)
+t = tokenOf()
+const timeout = Object.assign(new Error('timed out'), { code: 'ASK_TIMED_OUT' })
+q.toolSignal.abort(timeout)
+let thrown
+try { await q.result } catch (error) { thrown = error }
+check('timed-out question rethrows the timeout', thrown === timeout)
+check('continued question link stays open', (await api(t)).json.status === 'pending')
+v = (await api(t)).json
+r = await api(t, '/decide', answerBody(v.challenge, GO))
+check('continued answer goes through userQuestions.answer', r.status === 200 && lateAnswers.length === 1
+  && lateAnswers[0].callId === 'q-timed' && lateAnswers[0].agent === agent && JSON.stringify(lateAnswers[0].answer) === JSON.stringify({ answers: GO }))
+
+q = startQuestion({ timed: true })
+await sleep(50)
+t = tokenOf()
+q.toolSignal.abort(timeout)
+await q.result.catch(() => {})
+handlers['session/event'](session, { type: 'user/message', data: { source: { kind: 'user-question-reply', callId: 'q-timed', outcome: 'answered' } }, time: 0 })
+check('desktop late reply closes the continued link', (await api(t)).json.status === 'elsewhere')
+
+q = startQuestion({ timed: true })
+await sleep(50)
+t = tokenOf()
+q.toolSignal.abort(timeout)
+await q.result.catch(() => {})
+acceptLate = false
+v = (await api(t)).json
+r = await api(t, '/decide', answerBody(v.challenge, GO))
+check('already-answered continued question reports elsewhere', r.status === 409 && r.json.state.status === 'elsewhere')
+
+q = startQuestion()
+await sleep(50)
+t = tokenOf()
+q.toolSignal.abort(new Error('turn cancelled'))
+await q.result.catch(() => {})
+check('cancelled question closes the link', (await api(t)).json.status === 'cancelled')
 
 check('unknown token 404', (await api('zzz')).status === 404)
 check('root 404', (await realFetch(`${base}/`)).status === 404)

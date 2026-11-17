@@ -18,4 +18,6 @@
       #     port: 47391                    # loopback approval server
       #     adminPort: 47392               # loopback settings-page API (never published)
       #     ttlSeconds: 600                # lifetime of each phone approval link
+      #     questions: true                # answer agent questions on the phone (Face ID)
+      #     questionTtlSeconds: 21600      # lifetime of each phone question link
       config: {}

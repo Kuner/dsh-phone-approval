@@ -54,6 +54,10 @@ const DEFAULTS = {
     adminPort: 47392,
     // How long each phone approval link stays valid.
     ttlSeconds: 600,
+    // Answer agent questions (ask_user_question, plan reviews) on the phone; answers need Face ID.
+    questions: true,
+    // Questions such as release gates can wait for hours, so their links live longer.
+    questionTtlSeconds: 21600,
   },
 }
 
@@ -164,6 +168,7 @@ export function sanitizeConfigPatch(patch) {
     const phone = patch.phoneApproval
     out.phoneApproval = {}
     if (phone.enabled !== undefined) out.phoneApproval.enabled = Boolean(phone.enabled)
+    if (phone.questions !== undefined) out.phoneApproval.questions = Boolean(phone.questions)
     if (phone.publicUrl !== undefined) {
       const text = String(phone.publicUrl).trim()
       if (text !== '' && new URL(text).protocol !== 'https:') throw fail('审批页地址必须是 https:// 开头')
@@ -302,6 +307,9 @@ export function apply(ctx, rawConfig) {
   }
 
   const phoneActive = () => phoneConfig.enabled && config.events.approval && phone.available
+  const phoneQuestionsActive = () => phoneConfig.enabled && phoneConfig.questions && config.events.question && phone.available
+  // Question links whose tool call already returned "pending": answered later through userQuestions.answer().
+  const continuedQuestions = new Map()
 
   if (phoneConfig.enabled) {
     ctx.effect(() => {
@@ -394,10 +402,116 @@ export function apply(ctx, rawConfig) {
     return winner.outcome
   }
 
+  const isNoProvider = error => error?.code === 'NO_PROVIDER'
+
+  const handleQuestion = async (req, next) => {
+    const agent = req.agent
+    if (disposed || !phoneQuestionsActive() || agent === undefined || !Array.isArray(req.questions)
+      || (await resolveKey()) === undefined) return next()
+    const original = req.signal
+    if (original?.aborted) return next()
+
+    const session = agent.session
+    const label = sessionLabel(session)
+    const questions = req.questions.map(q => ({
+      id: q.id,
+      question: String(q.question ?? ''),
+      ...(q.header ? { header: String(q.header) } : {}),
+      ...(q.detail ? { detail: String(q.detail) } : {}),
+      options: (q.options ?? []).map(o => ({ label: o.label, ...(o.description ? { description: o.description } : {}) })),
+      multiSelect: q.multiSelect === true,
+    }))
+    const link = phone.create({ kind: 'question', session: label, questions }, { ttlMs: phoneConfig.questionTtlSeconds * 1000 })
+
+    // Same withdrawal mechanism as approvals: the desktop question panel follows this signal.
+    const desktopAbort = new AbortController()
+    try {
+      req.signal = original ? AbortSignal.any([original, desktopAbort.signal]) : desktopAbort.signal
+    } catch {
+      if (!warnedSignalSwap) {
+        warnedSignalSwap = true
+        logger.warn('phone-approval: cannot attach a withdrawal signal; the desktop question may stay open after a phone answer')
+      }
+    }
+
+    const first = questions[0]
+    const summary = config.includeDetails
+      ? clip(stripMarkdown([first.header, first.question].filter(Boolean).join('：')), 160)
+      : ''
+    send({
+      title: `❓ 等待你回答：${label}`,
+      body: [summary, questions.length > 1 ? `共 ${questions.length} 个问题` : '', '点开可在手机上回答'].filter(Boolean).join('\n'),
+      level: 'timeSensitive',
+      url: link.url,
+    })
+
+    const desktop = Promise.resolve().then(next)
+    desktop.catch(() => {})
+
+    const winner = await new Promise((resolve) => {
+      let desktopFailure
+      let phoneExpired = false
+      desktop.then(
+        answer => resolve({ source: 'desktop', answer }),
+        (error) => {
+          // No connected desktop answerer: keep waiting for the phone.
+          if (isNoProvider(error) && !phoneExpired) {
+            desktopFailure = error
+            return
+          }
+          resolve({ source: 'desktop-error', error })
+        },
+      )
+      link.result.then((outcome) => {
+        if (outcome === 'expired') {
+          phoneExpired = true
+          if (desktopFailure !== undefined) resolve({ source: 'desktop-error', error: desktopFailure })
+          return
+        }
+        resolve({ source: 'phone', answer: outcome })
+      })
+      original?.addEventListener('abort', () => resolve({ source: 'abort', reason: original.reason }), { once: true })
+    })
+
+    switch (winner.source) {
+      case 'phone':
+        desktopAbort.abort(new Error('phone-approval: answered on the phone'))
+        logger.info?.('phone-approval: question answered on the phone')
+        return winner.answer
+      case 'desktop':
+        link.settle('elsewhere')
+        return winner.answer
+      case 'desktop-error':
+        link.settle('cancelled')
+        throw winner.error
+      default: {
+        const callId = req.wait?.callId
+        if (winner.reason?.code === 'ASK_TIMED_OUT' && callId !== undefined && link.pending) {
+          // The tool call returns "pending" and the question stays answerable; keep the phone link.
+          link.setCommit(async ({ answers }) => {
+            const service = ctx.get('userQuestions')
+            if (!service) throw new Error('DSH 问答服务不可用')
+            if (!service.answer(agent, callId, { answers })) {
+              throw Object.assign(new Error('这个问题已经在电脑上回答了'), { settled: 'elsewhere' })
+            }
+          })
+          continuedQuestions.set(callId, link)
+          void link.result.then(() => continuedQuestions.delete(callId))
+        } else {
+          link.settle('cancelled')
+        }
+        throw winner.reason
+      }
+    }
+  }
+
   if (phoneConfig.enabled) {
-    // Prepend so this listener wraps the desktop forwarder registered by the Remote bridge.
+    // Prepend so these listeners wrap the desktop forwarders registered by the Remote bridge.
     ctx.on('approval/request', function (req, next) {
       return handleApproval(req, next)
+    }, true)
+    ctx.on('user-questions/request', function (req, next) {
+      return handleQuestion(req, next)
     }, true)
   }
 
@@ -435,6 +549,7 @@ export function apply(ctx, rawConfig) {
           minTurnSeconds: config.minTurnSeconds,
           phoneApproval: {
             enabled: phoneConfig.enabled,
+            questions: phoneConfig.questions,
             publicUrl: phoneConfig.publicUrl,
             ttlSeconds: phoneConfig.ttlSeconds,
           },
@@ -531,6 +646,12 @@ export function apply(ctx, rawConfig) {
         stateOf(session).lastText = ''
         return
       }
+      case 'user/message': {
+        // A late reply to a continued question, sent from the desktop: close its phone link.
+        const source = data.source
+        if (source?.kind === 'user-question-reply') continuedQuestions.get(source.callId)?.settle('elsewhere')
+        return
+      }
       case 'assistant/message': {
         const text = assistantText(data.message)
         if (text.trim()) stateOf(session).lastText = text
@@ -552,7 +673,8 @@ export function apply(ctx, rawConfig) {
         const calls = stateOf(session).calls
         calls.set(data.callId, { name: data.name, arguments: data.arguments })
         if (calls.size > MAX_TRACKED_CALLS) calls.delete(calls.keys().next().value)
-        if (!config.events.question || !QUESTION_TOOLS.has(data.name)) return
+        // With phone questions ready, the question listener sends the push with a link.
+        if (!config.events.question || !QUESTION_TOOLS.has(data.name) || phoneQuestionsActive()) return
         const text = config.includeDetails ? clip(stripMarkdown(questionText(data.arguments)), 160) : ''
         send({
           title: `❓ 等待你回答：${sessionLabel(session)}`,

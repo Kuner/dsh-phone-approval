@@ -101,26 +101,31 @@ export class PhoneApproval {
 
   /**
    * Open one phone decision window.
-   * @param info - { session, tool, reason, command } shown on the page.
-   * @returns { url, result, settle } — `result` resolves to 'allowed-once', 'rejected', or 'expired'.
+   * @param info - approval: { kind: 'approval', session, tool, reason, command };
+   *   question: { kind: 'question', session, questions }.
+   * @returns { url, result, settle, setCommit } — `result` resolves to 'allowed-once' or
+   *   'rejected' for approvals, `{ answers }` for questions, or 'expired'.
    */
-  create(info) {
+  create(info, { ttlMs = this.ttlMs } = {}) {
     const token = b64url(randomBytes(32))
     let resolve
     const result = new Promise((r) => { resolve = r })
     const entry = {
       token,
-      info,
+      info: { kind: 'approval', ...info },
       status: 'pending',
-      expiresAt: Date.now() + this.ttlMs,
+      expiresAt: Date.now() + ttlMs,
       challenge: newChallenge(),
       enrollChallenge: newChallenge(),
       enrollUserId: b64url(randomBytes(16)),
       failures: 0,
       resolve,
       timer: undefined,
+      // Optional async hook run before a phone decision is accepted; a throw keeps the link open.
+      commit: undefined,
+      committing: false,
     }
-    entry.timer = setTimeout(() => this.finish(entry, 'expired', 'expired'), this.ttlMs)
+    entry.timer = setTimeout(() => this.finish(entry, 'expired', 'expired'), ttlMs)
     entry.timer.unref?.()
     this.entries.set(token, entry)
     return {
@@ -128,6 +133,8 @@ export class PhoneApproval {
       result,
       // Called when the request was decided elsewhere (desktop) or withdrawn.
       settle: status => this.finish(entry, status, 'expired'),
+      setCommit: (fn) => { entry.commit = fn },
+      get pending() { return entry.status === 'pending' },
     }
   }
 
@@ -198,11 +205,12 @@ export class PhoneApproval {
   async view(entry) {
     const passkey = await this.readPasskey()
     const base = {
+      kind: entry.info.kind,
       status: entry.status,
       session: entry.info.session,
-      tool: entry.info.tool,
-      reason: entry.info.reason,
-      command: entry.info.command,
+      ...(entry.info.kind === 'question'
+        ? { questions: entry.info.questions, answers: entry.answers }
+        : { tool: entry.info.tool, reason: entry.info.reason, command: entry.info.command }),
       expiresAt: entry.expiresAt,
       rpId: this.rpId,
       enrolled: Boolean(passkey),
@@ -309,7 +317,66 @@ export class PhoneApproval {
     this.json(res, 200, { ok: true, state: await this.view(entry) })
   }
 
+  /**
+   * Verify the Face ID assertion in `body`; on failure the response is written.
+   * @returns whether the caller may proceed.
+   */
+  async checkFaceId(entry, body, res) {
+    const passkey = await this.readPasskey()
+    if (!passkey) {
+      this.json(res, 409, { error: '请先注册 Face ID', state: await this.view(entry) })
+      return false
+    }
+    const expected = { challenge: entry.challenge, origin: this.origin, rpId: this.rpId }
+    // Every challenge is single-use, successful or not.
+    entry.challenge = newChallenge()
+    let signCount
+    try {
+      signCount = verifyAssertion(body.assertion, passkey, expected)
+    } catch (error) {
+      entry.failures += 1
+      this.logger.warn(`phone-approval: Face ID check failed: ${error.message}`)
+      if (entry.failures >= MAX_FAILED_ASSERTIONS) this.finish(entry, 'expired', 'expired')
+      this.json(res, 403, { error: `验证失败：${error.message}`, state: await this.view(entry) })
+      return false
+    }
+    if (entry.status !== 'pending') {
+      this.json(res, 409, { error: '请求已结束', state: await this.view(entry) })
+      return false
+    }
+    if (signCount !== passkey.signCount) {
+      await this.writePasskey(async current => (current ? { ...current, signCount } : undefined))
+    }
+    return true
+  }
+
+  /** Run the entry's commit hook once; on failure the response is written and the link stays open. */
+  async commitDecision(entry, outcome, res) {
+    if (entry.commit === undefined) return true
+    if (entry.committing) {
+      this.json(res, 409, { error: '正在提交，请稍候', state: await this.view(entry) })
+      return false
+    }
+    entry.committing = true
+    try {
+      await entry.commit(outcome)
+      return true
+    } catch (error) {
+      const message = String(error?.message ?? error)
+      this.logger.warn(`phone-approval: could not deliver the phone decision: ${message}`)
+      if (error?.settled) this.finish(entry, error.settled, 'expired')
+      this.json(res, 409, { error: `提交失败：${message}`, state: await this.view(entry) })
+      return false
+    } finally {
+      entry.committing = false
+    }
+  }
+
   async decide(entry, body, res) {
+    if (entry.info.kind === 'question') {
+      await this.answer(entry, body, res)
+      return
+    }
     if (body?.decision === 'reject') {
       // Rejecting is always safe, so it does not require Face ID.
       this.finish(entry, 'rejected', 'rejected')
@@ -320,32 +387,65 @@ export class PhoneApproval {
       this.json(res, 400, { error: 'unknown decision' })
       return
     }
-    const passkey = await this.readPasskey()
-    if (!passkey) {
-      this.json(res, 409, { error: '请先注册 Face ID', state: await this.view(entry) })
-      return
-    }
-    const expected = { challenge: entry.challenge, origin: this.origin, rpId: this.rpId }
-    // Every challenge is single-use, successful or not.
-    entry.challenge = newChallenge()
-    let signCount
-    try {
-      signCount = verifyAssertion(body.assertion, passkey, expected)
-    } catch (error) {
-      entry.failures += 1
-      this.logger.warn(`phone-approval: phone approval Face ID check failed: ${error.message}`)
-      if (entry.failures >= MAX_FAILED_ASSERTIONS) this.finish(entry, 'expired', 'expired')
-      this.json(res, 403, { error: `验证失败：${error.message}`, state: await this.view(entry) })
-      return
-    }
-    if (entry.status !== 'pending') {
-      this.json(res, 409, { error: '请求已结束', state: await this.view(entry) })
-      return
-    }
-    if (signCount !== passkey.signCount) {
-      await this.writePasskey(async current => (current ? { ...current, signCount } : undefined))
-    }
+    if (!(await this.checkFaceId(entry, body, res))) return
     this.finish(entry, 'allowed', 'allowed-once')
     this.json(res, 200, { ok: true, state: await this.view(entry) })
   }
+
+  async answer(entry, body, res) {
+    if (body?.decision !== 'answer') {
+      this.json(res, 400, { error: 'unknown decision' })
+      return
+    }
+    let answers
+    try {
+      answers = normalizeAnswers(entry.info.questions, body.answers)
+    } catch (error) {
+      this.json(res, 400, { error: error.message, state: await this.view(entry) })
+      return
+    }
+    // An answer can authorize work (for example a release gate), so it needs Face ID too.
+    if (!(await this.checkFaceId(entry, body, res))) return
+    const outcome = { answers }
+    if (!(await this.commitDecision(entry, outcome, res))) return
+    entry.answers = answers
+    this.finish(entry, 'answered', outcome)
+    this.json(res, 200, { ok: true, state: await this.view(entry) })
+  }
+}
+
+const MAX_CUSTOM_CHARS = 2000
+
+/**
+ * Validate a phone answer batch against the asked questions: one item per question,
+ * selected labels drawn from the offered options, single-select at most one choice,
+ * and a non-empty choice or custom text for every question.
+ * @returns the normalized `answers` array in question order.
+ */
+export function normalizeAnswers(questions, raw) {
+  if (!Array.isArray(raw)) throw new Error('answers must be a list')
+  const byId = new Map()
+  for (const item of raw) {
+    if (!item || typeof item.id !== 'string' || byId.has(item.id)) throw new Error('每个问题只能回答一次')
+    byId.set(item.id, item)
+  }
+  if (byId.size !== questions.length) throw new Error('请回答所有问题')
+  return questions.map((question) => {
+    const item = byId.get(question.id)
+    if (item === undefined) throw new Error('请回答所有问题')
+    const labels = new Set((question.options ?? []).map(option => option.label))
+    const selected = Array.isArray(item.selected) ? [...new Set(item.selected.map(String))] : []
+    for (const label of selected) {
+      if (!labels.has(label)) throw new Error(`「${label}」不是这个问题的选项`)
+    }
+    const custom = typeof item.custom === 'string' ? item.custom.trim() : ''
+    if (Array.from(custom).length > MAX_CUSTOM_CHARS) throw new Error('自定义回答太长')
+    if (question.multiSelect !== true) {
+      if (selected.length > 1) throw new Error('这个问题只能选一项')
+      // Single-select: custom text replaces the choice, as in the desktop UI.
+      if (custom) return { id: question.id, selected: [], custom }
+    }
+    if (selected.length === 0 && !custom) throw new Error(`请回答：${question.header || question.question.slice(0, 20)}`)
+    return { id: question.id, selected, ...(custom ? { custom } : {}) }
+  })
 }
