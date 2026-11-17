@@ -1,6 +1,7 @@
 // DSH phone approval: push DSH attention events to an iPhone through Bark
 // (https://bark.day.app), answer approval requests from the phone with Face ID,
-// and manage everything from a settings page on the plugin's DSH detail page.
+// optionally encrypt pushes end to end, and manage everything from the plugin's
+// page in the DSH sidebar.
 //
 // Notifications observe committed `session/event` appends only. Phone approval adds
 // one `approval/request` waterfall listener that races a phone decision against the
@@ -10,6 +11,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { AdminServer } from './admin.js'
+import { ALGORITHM, MODE, PADDING, encryptPush, generateIv, generateKey, isValidKey } from './bark-crypto.js'
 import { PhoneApproval } from './phone-approval.js'
 import { enableServe, tailscaleStatus } from './tailscale.js'
 
@@ -35,6 +37,10 @@ const DEFAULTS = {
     completed: true,
     error: true,
   },
+  // Which finished turns push "completed": 'human' = only turns you started (a typed
+  // message or a question answer); 'all' = also turns started automatically, such as
+  // background subagent results, job completions, goal rounds and reminders.
+  completedScope: 'human',
   // Skip "completed" pushes for turns shorter than this many seconds (0 = always push).
   minTurnSeconds: 0,
   // Include approval reasons, question text, and answer previews in the push body.
@@ -62,6 +68,10 @@ const DEFAULTS = {
 }
 
 const QUESTION_TOOLS = new Set(['ask_user_question'])
+// User-message sources that mean a person started or continued the turn.
+const HUMAN_SOURCES = new Set(['user', 'user-question-reply'])
+const ENCRYPTION_RECORD = 'phone-approval/bark-encryption'
+const COMPLETED_SCOPES = ['human', 'all']
 const MAX_TRACKED_CALLS = 30
 const TAILSCALE_REFRESH_MS = 60 * 1000
 
@@ -159,6 +169,10 @@ export function sanitizeConfigPatch(patch) {
     }
   }
   if (patch.includeDetails !== undefined) out.includeDetails = Boolean(patch.includeDetails)
+  if (patch.completedScope !== undefined) {
+    if (!COMPLETED_SCOPES.includes(patch.completedScope)) throw fail('completedScope 只能是 human 或 all')
+    out.completedScope = patch.completedScope
+  }
   if (patch.minTurnSeconds !== undefined) {
     const value = Number(patch.minTurnSeconds)
     if (!Number.isInteger(value) || value < 0 || value > 86400) throw fail('“最短轮次”必须是 0–86400 的整数')
@@ -207,7 +221,7 @@ export function apply(ctx, rawConfig) {
   const stateOf = (session) => {
     let state = sessions.get(session.id)
     if (state === undefined) {
-      state = { turnStartedAt: undefined, lastText: '', calls: new Map() }
+      state = { turnStartedAt: undefined, lastText: '', calls: new Map(), human: false }
       sessions.set(session.id, state)
     }
     return state
@@ -229,8 +243,32 @@ export function apply(ctx, rawConfig) {
     return hit?.value?.trim() || undefined
   }
 
-  /** Send one Bark push; resolves { ok, error? } and never throws. */
-  const push = async ({ title, body, level, url }) => {
+  // ---- Push encryption: key lives in a credential record, never in config ----
+
+  const readEncryption = async () => {
+    const record = await ctx.get('credentials')?.readRecord(ENCRYPTION_RECORD)
+    const payload = record?.kind === 'grant' ? record.payload : undefined
+    return payload && isValidKey(payload.key) ? payload : undefined
+  }
+
+  const writeEncryption = async (mutate) => {
+    const credentials = ctx.get('credentials')
+    if (!credentials) throw fail('DSH 凭据服务不可用', 503)
+    let written
+    await credentials.modifyRecord(ENCRYPTION_RECORD, async (current) => {
+      const next = mutate(current?.kind === 'grant' ? current.payload : undefined)
+      if (next === undefined) return undefined
+      written = next
+      return { kind: 'grant', payload: next }
+    })
+    return written
+  }
+
+  /**
+   * Send one Bark push; resolves { ok, error?, encrypted } and never throws.
+   * @param encryptWith - force this key (used to test a key before enabling it).
+   */
+  const push = async ({ title, body, level, url, encryptWith }) => {
     if (disposed) return { ok: false, error: 'plugin stopped' }
     const key = await resolveKey()
     if (key === undefined) {
@@ -242,14 +280,29 @@ export function apply(ctx, rawConfig) {
     }
     warnedMissingKey = false
     const target = url || config.openUrl
-    const payload = {
-      device_key: key,
+    const fields = {
       title,
       body: body || ' ',
       group: config.group,
       level,
       ...(target ? { url: target } : {}),
     }
+    let encryptionKey = encryptWith
+    if (encryptionKey === undefined) {
+      try {
+        const encryption = await readEncryption()
+        if (encryption?.enabled) encryptionKey = encryption.key
+      } catch (error) {
+        // Never fall back to plaintext when encryption state cannot be read.
+        logger.warn(`phone-approval: cannot read push encryption state: ${String(error?.message ?? error)}`)
+        return { ok: false, error: '读取加密设置失败' }
+      }
+    }
+    // Encrypted pushes carry everything inside the ciphertext: the Bark app replaces
+    // the whole payload with the decrypted fields, so nothing else needs to travel in clear.
+    const payload = encryptionKey
+      ? { device_key: key, ...encryptPush(fields, encryptionKey) }
+      : { device_key: key, ...fields }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
@@ -264,7 +317,7 @@ export function apply(ctx, rawConfig) {
         logger.warn(`phone-approval: push failed with HTTP ${response.status}`)
         return { ok: false, error: `Bark 返回 HTTP ${response.status}${detail ? `：${detail}` : ''}` }
       }
-      return { ok: true }
+      return { ok: true, encrypted: Boolean(encryptionKey) }
     } catch (error) {
       logger.warn(`phone-approval: push failed: ${String(error?.message ?? error)}`)
       return { ok: false, error: String(error?.message ?? error) }
@@ -517,6 +570,20 @@ export function apply(ctx, rawConfig) {
 
   // ---- Settings page admin API ---------------------------------------------
 
+  /** Whether the Bark server answers /ping (bark-server and api.day.app both serve it). */
+  const pingServer = async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 3000)
+    try {
+      const response = await fetch(`${config.server}/ping`, { signal: controller.signal })
+      return response.ok
+    } catch {
+      return false
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   const credentialsOrFail = () => {
     const credentials = ctx.get('credentials')
     if (!credentials) throw fail('DSH 凭据服务不可用', 503)
@@ -527,10 +594,20 @@ export function apply(ctx, rawConfig) {
     'GET /status': async () => {
       const credentials = ctx.get('credentials')
       const bark = credentials ? await credentials.describe(config.credential) : { configured: false }
+      const encryption = await readEncryption().catch(() => undefined)
+      const serverOk = await pingServer()
       await refreshTailscale()
       return {
         version: VERSION,
-        bark: { configured: Boolean(bark.configured), masked: bark.masked, credential: config.credential },
+        bark: { configured: Boolean(bark.configured), masked: bark.masked, credential: config.credential, server: config.server, serverOk },
+        encryption: {
+          configured: Boolean(encryption),
+          enabled: Boolean(encryption?.enabled),
+          createdAt: encryption?.createdAt,
+          algorithm: ALGORITHM,
+          mode: MODE,
+          padding: PADDING,
+        },
         phone: {
           enabled: phoneConfig.enabled,
           listening: phone.ready,
@@ -546,6 +623,7 @@ export function apply(ctx, rawConfig) {
           server: config.server,
           events: config.events,
           includeDetails: config.includeDetails,
+          completedScope: config.completedScope,
           minTurnSeconds: config.minTurnSeconds,
           phoneApproval: {
             enabled: phoneConfig.enabled,
@@ -579,6 +657,38 @@ export function apply(ctx, rawConfig) {
         url: phone.base,
       })
       if (!result.ok) throw fail(result.error ?? '推送失败', 502)
+      return { ok: true }
+    },
+    'POST /encryption/generate': async () => {
+      // A new key starts disabled: pushes stay readable until the phone has the key.
+      const written = await writeEncryption(() => ({ key: generateKey(), iv: generateIv(), enabled: false, createdAt: Date.now() }))
+      return { ok: true, key: written.key, iv: written.iv }
+    },
+    'POST /encryption/reveal': async () => {
+      const encryption = await readEncryption()
+      if (!encryption) throw fail('还没有生成加密密钥', 404)
+      return { key: encryption.key, iv: encryption.iv }
+    },
+    'POST /encryption/test': async () => {
+      const encryption = await readEncryption()
+      if (!encryption) throw fail('还没有生成加密密钥', 404)
+      const result = await push({
+        title: '🔒 DSH 加密测试推送',
+        body: '能看到这句话，说明手机上的密钥设置正确，可以启用加密。',
+        level: 'active',
+        encryptWith: encryption.key,
+      })
+      if (!result.ok) throw fail(result.error ?? '推送失败', 502)
+      return { ok: true }
+    },
+    'POST /encryption/enable': async (body) => {
+      const enabled = Boolean(body.enabled)
+      const written = await writeEncryption(current => (current && isValidKey(current.key) ? { ...current, enabled } : undefined))
+      if (!written) throw fail('还没有生成加密密钥', 404)
+      return { ok: true, enabled }
+    },
+    'POST /encryption/clear': async () => {
+      await ctx.get('credentials')?.deleteRecord(ENCRYPTION_RECORD)
       return { ok: true }
     },
     'POST /passkey/reset': async () => {
@@ -644,9 +754,11 @@ export function apply(ctx, rawConfig) {
       case 'turn/start': {
         stateOf(session).turnStartedAt = event.time
         stateOf(session).lastText = ''
+        stateOf(session).human = false
         return
       }
       case 'user/message': {
+        if (HUMAN_SOURCES.has(data.source?.kind)) stateOf(session).human = true
         // A late reply to a continued question, sent from the desktop: close its phone link.
         const source = data.source
         if (source?.kind === 'user-question-reply') continuedQuestions.get(source.callId)?.settle('elsewhere')
@@ -688,6 +800,8 @@ export function apply(ctx, rawConfig) {
         const reason = data.reason ?? {}
         const startedAt = state.turnStartedAt
         const lastText = state.lastText
+        const human = state.human
+        state.human = false
         state.turnStartedAt = undefined
         state.lastText = ''
         state.calls.clear()
@@ -695,6 +809,8 @@ export function apply(ctx, rawConfig) {
         if (isSubagent) return
         if (reason.kind === 'completed' || reason.kind === 'max-tokens') {
           if (!config.events.completed) return
+          // Automatic turns (subagent results, job completions, goal rounds) stay quiet unless asked for.
+          if (config.completedScope !== 'all' && !human) return
           const seconds = startedAt === undefined ? Infinity : (event.time - startedAt) / 1000
           if (seconds < config.minTurnSeconds) return
           send({

@@ -7,6 +7,7 @@
       #   server: https://api.day.app      # Bark server (self-hosted bark-server works too)
       #   credential: DSH_BARK_KEY         # credential reference holding the Bark device key
       #   events: { approval: true, question: true, completed: true, error: true }
+      #   completedScope: human            # "finished" only for turns you started; all = also automatic turns
       #   minTurnSeconds: 0                # skip "finished" pushes for shorter turns
       #   includeDetails: true             # reasons / questions / previews in push bodies
       #   openUrl: ''                      # URL opened by non-approval notifications

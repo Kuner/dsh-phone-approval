@@ -10,7 +10,7 @@ DeepSeek Harness（DSH）插件：把需要你处理的事件推送到 iPhone，
 |---|---|---|
 | 🔐 需要审批 | agent 申请权限（含子 agent），附带一次性审批链接 | 时效性通知 |
 | ❓ 等待你回答 | agent 提问（`ask_user_question`、计划审阅），附带一次性回答链接 | 时效性通知 |
-| ✅ 已完成 | 顶层会话一轮正常结束 | 普通 |
+| ✅ 已完成 | 顶层会话中**你发起的**一轮正常结束（子 agent 交回结果、任务完成、目标轮次等自动触发的轮次默认不推） | 普通 |
 | ⚠️ 出错 | 顶层会话一轮出错 | 时效性通知 |
 
 **手机审批**
@@ -26,6 +26,19 @@ DeepSeek Harness（DSH）插件：把需要你处理的事件推送到 iPhone，
 - 提交回答需要 Face ID：像「确认发布」这样的回答等同于授权。
 - 手机与电脑谁先回答以谁为准；手机先回答时，电脑上的提问框自动撤回。
 - 提问链接默认 6 小时过期（`questionTtlSeconds`），适合发布门禁这种可能晚些才处理的问题。如果电脑上的提问已经超时转为「待回答」，手机回答会作为补充回复送给 agent。
+
+**推送哪些消息**：设置页可一键切换「全部」或「只推需要我处理的」（审批和提问），也可逐类开关；「已完成」默认只推你发起的对话。
+
+**加密推送**：设置页生成 AES-256-CBC 密钥，填进 Bark App 的「推送加密」后启用。之后标题、正文和审批链接都在本机加密，Bark 服务器和苹果推送服务只能看到密文；每条推送使用新的随机 IV。
+
+**自建 Bark 服务器**：
+
+```sh
+docker run -d --name bark --restart unless-stopped -p 127.0.0.1:8080:8080 -v ~/.bark-server/data:/data finab/bark-server
+tailscale serve --bg --https=8444 http://127.0.0.1:8080   # 让 iPhone 上的 Bark App 能注册
+```
+
+然后在 Bark App 添加服务器 `https://<mac>.<tailnet>.ts.net:8444`，设置页把 Bark 服务器改成 `http://127.0.0.1:8080` 并保存新的 key。
 
 **设置页**：DSH 左侧边栏 → 「手机审批」。可以设置 Bark key、发测试推送、查看 Tailscale / HTTPS 转发 / Face ID 状态、一键开启 Tailscale 转发、重置 Face ID，以及调整通知选项。
 
@@ -87,6 +100,7 @@ node test/e2e.mjs         # 端到端测试：模拟 DSH 上下文 + 软件 WebA
 | `index.js` | Host 插件：通知、审批链监听、管理接口路由、页面注入 |
 | `phone-approval.js` | 手机审批页服务、一次性链接、passkey 注册与校验流程 |
 | `webauthn.js` | 无依赖的 CBOR 解码与 WebAuthn 校验 |
+| `bark-crypto.js` | Bark 推送加密（AES-256-CBC） |
 | `page.js` | 手机审批页 HTML |
 | `admin.js` | 设置页用的本机管理接口 |
 | `tailscale.js` | Tailscale 状态检测与 `tailscale serve` |

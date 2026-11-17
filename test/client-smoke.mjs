@@ -14,7 +14,12 @@ const check = (name, ok) => {
 // Single-pass stub React: hooks return initial values, effects do not run.
 const React = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() }),
-  useState: init => [typeof init === 'function' ? init() : init, () => {}],
+  useState: (init) => {
+    const value = typeof init === 'function' ? init() : init
+    // Let a test jump the page straight to a loaded state.
+    if (value && value.kind === 'loading' && React.readyStatus) return [{ kind: 'ready', status: React.readyStatus }, () => {}]
+    return [value, () => {}]
+  },
   useEffect: () => {},
   useCallback: fn => fn,
   useRef: value => ({ current: value }),
@@ -67,6 +72,32 @@ sandbox.__DSH_PHONE_APPROVAL_ADMIN__ = { url: 'http://127.0.0.1:1', token: 'x' }
 page = text(main.component({ t }))
 check('page with admin starts loading', page.includes('正在读取状态'))
 check('no missing copy', !/\[\w+\]/.test(page))
+
+const config = {
+  server: 'http://127.0.0.1:8080',
+  events: { approval: true, question: true, completed: false, error: false },
+  completedScope: 'human', includeDetails: true, minTurnSeconds: 0,
+  phoneApproval: { enabled: true, questions: true, publicUrl: '', ttlSeconds: 600 },
+}
+const baseStatus = {
+  version: 'x',
+  bark: { configured: true, masked: 'ab…cd', server: config.server, serverOk: true },
+  encryption: { configured: true, enabled: false, algorithm: 'AES256', mode: 'CBC', padding: 'pkcs7' },
+  phone: { enabled: true, listening: true, url: 'https://x/', port: 1, httpsPort: 2, active: true, passkey: { enrolled: true, matchesUrl: true } },
+  tailscale: { installed: true, running: true, serveOk: true, dnsName: 'x' },
+  config, configWritable: true,
+}
+for (const encryption of [{ ...baseStatus.encryption }, { ...baseStatus.encryption, enabled: true }, { ...baseStatus.encryption, configured: false }]) {
+  React.readyStatus = { ...baseStatus, encryption }
+  let rendered = ''
+  try { rendered = text(main.component({ t })) } catch (error) { rendered = 'THREW ' + error.message }
+  const state = !encryption.configured ? 'off' : encryption.enabled ? 'on' : 'pending'
+  check(`full page renders (encryption ${state})`, !rendered.startsWith('THREW') && rendered.includes('加密推送')
+    && rendered.includes('推送哪些消息') && rendered.includes('只推需要我处理的') && rendered.includes('手机审批与服务器')
+    && !/\[\w+\]/.test(rendered))
+  if (rendered.startsWith('THREW')) console.log(rendered)
+}
+React.readyStatus = undefined
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`)
 process.exit(failures === 0 ? 0 : 1)

@@ -16,6 +16,46 @@ window.__ModuleLoader__.load({
     const zh = {
       panel: '手机审批',
       pageTitle: '手机审批与通知',
+      serverLabel: '服务器',
+      serverOk: '可访问',
+      serverBad: '连不上',
+      encTitle: '加密推送',
+      encHint: '开启后推送内容先在这台 Mac 上加密，Bark 服务器和苹果推送服务都只能看到密文，只有你的 iPhone 能解开。',
+      encOff: '未开启',
+      encPending: '待启用',
+      encOn: '已启用',
+      encGenerate: '生成密钥',
+      encSteps: '在 iPhone 的 Bark App 首页 → 推送加密 → 加密设置，按下面填写并保存。可以在 Mac 上点「复制」，再到 iPhone 上粘贴（通用剪贴板）。',
+      encAlgorithm: '算法',
+      encMode: '模式',
+      encPadding: 'Padding',
+      encKey: 'Key',
+      encIv: 'IV',
+      encIvHint: '每次推送都会带新的 IV，这里只是 App 要求填写时用。',
+      copy: '复制',
+      copied: '已复制',
+      encShow: '显示密钥',
+      encHide: '隐藏',
+      encTest: '发送加密测试推送',
+      encTestSent: '已发送加密测试推送。手机上能看到正文就说明设置正确；显示 Decryption Failed 说明密钥没填对。',
+      encEnable: '手机能看到，启用加密',
+      encDisable: '停用加密',
+      encRegenerate: '重新生成',
+      encRegenerateConfirm: '重新生成密钥后，需要在手机上换成新密钥，否则推送会显示 Decryption Failed。继续吗？',
+      encClear: '删除密钥',
+      encClearConfirm: '删除密钥并改回明文推送？',
+      msgTitle: '推送哪些消息',
+      msgHint: '审批和提问需要你处理；完成和出错只是通知。关闭某类推送后，这类消息就不会发到手机。',
+      presetAll: '全部',
+      presetActionable: '只推需要我处理的',
+      presetCustom: '自定义',
+      evApprovalHint: '关闭后也就不能在手机上审批了。',
+      evQuestionHint: '关闭后也就不能在手机上回答了。',
+      humanOnly: '“已完成”只推我发起的对话',
+      humanOnlyHint: '后台子 agent 交回结果、任务完成、目标轮次等自动触发的对话结束时不推送。',
+      phoneOptionsTitle: '手机审批与服务器',
+      barkServerHint: '自建 bark-server 时填它的地址，然后在上面重新保存 Bark key（每个服务器的 key 不同）。',
+
       pageSubtitle: '把审批、提问、完成和出错推送到 iPhone，并在手机上用 Face ID 处理审批。',
       refresh: '刷新',
       noAdmin: '无法连接插件后台。请完全退出并重新打开 DSH，让页面拿到新的连接信息。',
@@ -81,6 +121,46 @@ window.__ModuleLoader__.load({
     const en = {
       panel: 'Phone approval',
       pageTitle: 'Phone approval and notifications',
+      serverLabel: 'Server',
+      serverOk: 'Reachable',
+      serverBad: 'Unreachable',
+      encTitle: 'Encrypted notifications',
+      encHint: 'Notifications are encrypted on this Mac; the Bark server and Apple only see ciphertext, and only your iPhone can read them.',
+      encOff: 'Off',
+      encPending: 'Not enabled yet',
+      encOn: 'On',
+      encGenerate: 'Generate key',
+      encSteps: 'On the iPhone, open Bark → Push Encryption → Encryption Settings and enter the values below. Click Copy here and paste on the iPhone (Universal Clipboard).',
+      encAlgorithm: 'Algorithm',
+      encMode: 'Mode',
+      encPadding: 'Padding',
+      encKey: 'Key',
+      encIv: 'IV',
+      encIvHint: 'Every notification carries a fresh IV; this one only fills the field if the app requires it.',
+      copy: 'Copy',
+      copied: 'Copied',
+      encShow: 'Show key',
+      encHide: 'Hide',
+      encTest: 'Send encrypted test',
+      encTestSent: 'Sent. If the phone shows the text, the key is right; "Decryption Failed" means it was entered wrong.',
+      encEnable: 'Phone shows it — enable',
+      encDisable: 'Turn off encryption',
+      encRegenerate: 'Regenerate',
+      encRegenerateConfirm: 'After regenerating, the phone needs the new key or notifications show "Decryption Failed". Continue?',
+      encClear: 'Delete key',
+      encClearConfirm: 'Delete the key and go back to plain notifications?',
+      msgTitle: 'Which notifications to send',
+      msgHint: 'Approvals and questions need you; finished turns and errors are just updates. Turned-off kinds never reach the phone.',
+      presetAll: 'All',
+      presetActionable: 'Only what needs me',
+      presetCustom: 'Custom',
+      evApprovalHint: 'Turning this off also turns off phone approval.',
+      evQuestionHint: 'Turning this off also turns off answering on the phone.',
+      humanOnly: 'Only notify "finished" for turns I started',
+      humanOnlyHint: 'Turns started automatically (background subagent results, job completions, goal rounds) finish silently.',
+      phoneOptionsTitle: 'Phone approval and server',
+      barkServerHint: 'For a self-hosted bark-server enter its address, then save the Bark key again above (each server issues its own key).',
+
       pageSubtitle: 'Push approvals, questions, finished turns and errors to your iPhone, and answer approvals there with Face ID.',
       refresh: 'Refresh',
       noAdmin: 'Cannot reach the plugin backend. Quit DSH completely and reopen it so this page receives the new connection details.',
@@ -187,6 +267,14 @@ window.__ModuleLoader__.load({
 .dpa-msg { font-size:13px; color:var(--dsw-alias-label-secondary); margin:0; }
 .dpa-msg.ok { color:var(--dsw-alias-state-success-primary); }
 .dpa-msg.bad { color:var(--dsw-alias-state-error-primary); }
+.dpa-seg { display:inline-flex; border:1px solid var(--dsw-alias-border-l2); border-radius:var(--dsw-radius-md, 8px); overflow:hidden; }
+.dpa-seg button { height:30px; padding:0 12px; border:0; background:transparent; color:var(--dsw-alias-label-secondary); font:inherit; cursor:pointer; }
+.dpa-seg button + button { border-left:1px solid var(--dsw-alias-border-l2); }
+.dpa-seg button[aria-pressed="true"] { background:var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color:var(--dsw-alias-label-primary); font-weight:500; }
+.dpa-seg button:disabled { cursor:default; opacity:.6; }
+.dpa-kv { display:grid; grid-template-columns:auto 1fr auto; gap:8px 12px; align-items:center; }
+.dpa-kv-k { color:var(--dsw-alias-label-secondary); font-size:13px; }
+.dpa-code { font-family:var(--dsw-font-mono, ui-monospace, Menlo, monospace); font-size:13px; word-break:break-all; user-select:all; }
 .dpa-footer { display:flex; align-items:center; justify-content:flex-end; gap:12px; }
 `
 
@@ -265,6 +353,10 @@ window.__ModuleLoader__.load({
           h('span', { className: `dpa-badge ${configured ? 'ok' : ''}` },
             configured ? `${t('barkSet')}${status.bark.masked ? ` · ${status.bark.masked}` : ''}` : t('barkUnset'))),
         h('p', { className: 'dpa-hint' }, t('barkHint')),
+        h(StatusRow, {
+          label: t('serverLabel'), sub: status.bark.server,
+          tone: status.bark.serverOk ? 'ok' : 'bad', text: status.bark.serverOk ? t('serverOk') : t('serverBad'),
+        }),
         h('div', { className: 'dpa-inline' },
           h('input', {
             className: 'dpa-input', type: 'password', autoComplete: 'off', spellCheck: false,
@@ -331,11 +423,140 @@ window.__ModuleLoader__.load({
         h(Message, { msg }))
     }
 
-    function toDraft(config) {
-      return {
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    function CopyField({ t, label, value, hint }) {
+      const [copied, setCopied] = useState(false)
+      return [
+        h('span', { key: 'k', className: 'dpa-kv-k' }, label),
+        h('div', { key: 'v' },
+          h('div', { className: 'dpa-code' }, value),
+          hint ? h('div', { className: 'dpa-sub' }, hint) : null),
+        h('button', {
+          key: 'b', type: 'button', className: 'dpa-btn small',
+          onClick: async () => { if (await copyText(value)) { setCopied(true); setTimeout(() => setCopied(false), 1500) } },
+        }, copied ? t('copied') : t('copy')),
+      ]
+    }
+
+    function EncryptionCard({ t, status, reload }) {
+      const enc = status.encryption
+      const [secret, setSecret] = useState(null)
+      const { busy, msg, run } = useAction(reload)
+      const reveal = () => run(async () => setSecret(await call('/encryption/reveal', {})))
+      const badge = !enc.configured ? ['', t('encOff')] : enc.enabled ? ['ok', t('encOn')] : ['', t('encPending')]
+      // A key that is not enabled yet is shown right away: the next step is entering it on the phone.
+      useEffect(() => { if (enc.configured && !enc.enabled && !secret) void reveal() }, [enc.configured, enc.enabled])
+      const btn = (label, onClick, cls = '') => h('button', { type: 'button', className: `dpa-btn ${cls}`, disabled: busy || !status.bark.configured, onClick }, label)
+      return h('section', { className: 'dpa-card' },
+        h('div', { className: 'dpa-head' },
+          h('h3', { className: 'dpa-title' }, t('encTitle')),
+          h('span', { className: `dpa-badge ${badge[0]}` }, badge[1])),
+        h('p', { className: 'dpa-hint' }, t('encHint')),
+        secret ? h('div', null,
+          h('p', { className: 'dpa-hint', style: { marginBottom: '10px' } }, t('encSteps')),
+          h('div', { className: 'dpa-kv' },
+            h('span', { className: 'dpa-kv-k' }, t('encAlgorithm')), h('span', { className: 'dpa-code' }, enc.algorithm), h('span'),
+            h('span', { className: 'dpa-kv-k' }, t('encMode')), h('span', { className: 'dpa-code' }, enc.mode), h('span'),
+            h('span', { className: 'dpa-kv-k' }, t('encPadding')), h('span', { className: 'dpa-code' }, enc.padding), h('span'),
+            ...CopyField({ t, label: t('encKey'), value: secret.key }),
+            ...CopyField({ t, label: t('encIv'), value: secret.iv, hint: t('encIvHint') }))) : null,
+        h('div', { className: 'dpa-inline' },
+          !enc.configured ? btn(t('encGenerate'), () => run(async () => setSecret(await call('/encryption/generate', {}))), 'primary') : null,
+          enc.configured ? btn(t('encTest'), () => run(() => call('/encryption/test', {}), t('encTestSent'))) : null,
+          enc.configured && !enc.enabled ? btn(t('encEnable'), () => run(() => call('/encryption/enable', { enabled: true }).then(() => setSecret(null))), 'primary') : null,
+          enc.configured && enc.enabled ? btn(secret ? t('encHide') : t('encShow'), () => (secret ? setSecret(null) : reveal())) : null,
+          enc.configured && enc.enabled ? btn(t('encDisable'), () => run(() => call('/encryption/enable', { enabled: false }))) : null,
+          enc.configured ? btn(t('encRegenerate'), () => { if (window.confirm(t('encRegenerateConfirm'))) run(async () => setSecret(await call('/encryption/generate', {}))) }) : null,
+          enc.configured ? btn(t('encClear'), () => { if (window.confirm(t('encClearConfirm'))) run(() => call('/encryption/clear', {}).then(() => setSecret(null))) }, 'danger') : null),
+        h(Message, { msg }))
+    }
+
+    /** Shared draft/save logic for cards that edit plugin configuration. */
+    function useConfigCard(status, reload, t, toDraftFn, toPatch) {
+      const [draft, setDraft] = useState(() => toDraftFn(status.config))
+      const initial = useRef(JSON.stringify(toDraftFn(status.config)))
+      const action = useAction(reload)
+      const writable = status.configWritable
+      const disabled = !writable || action.busy
+      const dirty = JSON.stringify(draft) !== initial.current
+      const save = () => action.run(async () => {
+        await call('/config', { patch: toPatch(draft) })
+        initial.current = JSON.stringify(draft)
+        // The plugin restarts with the new options; give it a moment before re-reading.
+        await new Promise(resolve => setTimeout(resolve, 1200))
+      }, t('saved'))
+      const toggleRow = (label, checked, onChange, hint, extraDisabled = false) => h('div', { className: 'dpa-row' },
+        h('div', { className: 'dpa-label' }, h('span', null, label), hint ? h('span', { className: 'dpa-sub' }, hint) : null),
+        h(Switch, { checked, onChange, label, disabled: disabled || extraDisabled }))
+      const fieldRow = (label, input, hint) => h('div', { className: 'dpa-row' },
+        h('div', { className: 'dpa-label' }, h('span', null, label), hint ? h('span', { className: 'dpa-sub' }, hint) : null),
+        input)
+      const footer = h('div', { className: 'dpa-footer' },
+        h(Message, { msg: !writable ? { text: t('readOnly') } : action.msg }),
+        h('button', { type: 'button', className: 'dpa-btn primary', disabled: disabled || !dirty, onClick: save },
+          action.busy ? t('saving') : t('saveOptions')))
+      return { draft, setDraft, disabled, toggleRow, fieldRow, footer }
+    }
+
+    const PRESETS = {
+      all: { approval: true, question: true, completed: true, error: true },
+      actionable: { approval: true, question: true, completed: false, error: false },
+    }
+    const presetOf = events => Object.keys(PRESETS).find(name =>
+      Object.entries(PRESETS[name]).every(([k, v]) => Boolean(events[k]) === v)) || 'custom'
+
+    function MessagesCard({ t, status, reload }) {
+      const card = useConfigCard(status, reload, t, config => ({
         events: { ...config.events },
+        completedScope: config.completedScope || 'human',
         includeDetails: config.includeDetails,
         minTurnSeconds: String(config.minTurnSeconds),
+      }), draft => ({
+        events: draft.events,
+        completedScope: draft.completedScope,
+        includeDetails: draft.includeDetails,
+        minTurnSeconds: Number(draft.minTurnSeconds),
+      }))
+      const { draft, setDraft, disabled, toggleRow, fieldRow } = card
+      const setEvent = (k, v) => setDraft(d => ({ ...d, events: { ...d.events, [k]: v } }))
+      const preset = presetOf(draft.events)
+      const presetButton = (name, label) => h('button', {
+        type: 'button', 'aria-pressed': preset === name ? 'true' : 'false', disabled: disabled || name === 'custom',
+        onClick: () => { if (PRESETS[name]) setDraft(d => ({ ...d, events: { ...PRESETS[name] } })) },
+      }, label)
+      return h('section', { className: 'dpa-card' },
+        h('div', { className: 'dpa-head' },
+          h('h3', { className: 'dpa-title' }, t('msgTitle')),
+          h('div', { className: 'dpa-seg', role: 'group', 'aria-label': t('msgTitle') },
+            presetButton('all', t('presetAll')),
+            presetButton('actionable', t('presetActionable')),
+            presetButton('custom', t('presetCustom')))),
+        h('p', { className: 'dpa-hint' }, t('msgHint')),
+        h('div', null,
+          toggleRow(t('evApproval'), draft.events.approval, v => setEvent('approval', v), t('evApprovalHint')),
+          toggleRow(t('evQuestion'), draft.events.question, v => setEvent('question', v), t('evQuestionHint')),
+          toggleRow(t('evCompleted'), draft.events.completed, v => setEvent('completed', v)),
+          toggleRow(t('humanOnly'), draft.completedScope !== 'all', v => setDraft(d => ({ ...d, completedScope: v ? 'human' : 'all' })),
+            t('humanOnlyHint'), !draft.events.completed),
+          fieldRow(t('minTurn'), h('input', {
+            className: 'dpa-input num', inputMode: 'numeric', value: draft.minTurnSeconds, disabled: disabled || !draft.events.completed,
+            'aria-label': t('minTurn'), onChange: e => setDraft(d => ({ ...d, minTurnSeconds: e.target.value })),
+          })),
+          toggleRow(t('evError'), draft.events.error, v => setEvent('error', v)),
+          toggleRow(t('includeDetails'), draft.includeDetails, v => setDraft(d => ({ ...d, includeDetails: v })), t('includeDetailsHint'))),
+        card.footer)
+    }
+
+    function OptionsCard({ t, status, reload }) {
+      const card = useConfigCard(status, reload, t, config => ({
         server: config.server,
         phoneApproval: {
           enabled: config.phoneApproval.enabled,
@@ -343,74 +564,37 @@ window.__ModuleLoader__.load({
           publicUrl: config.phoneApproval.publicUrl || '',
           ttlSeconds: String(config.phoneApproval.ttlSeconds),
         },
-      }
-    }
-
-    function OptionsCard({ t, status, reload }) {
-      const [draft, setDraft] = useState(() => toDraft(status.config))
-      const initial = useRef(JSON.stringify(toDraft(status.config)))
-      const { busy, msg, run } = useAction(reload)
-      const dirty = JSON.stringify(draft) !== initial.current
-      const writable = status.configWritable
-      const setEvent = (k, v) => setDraft(d => ({ ...d, events: { ...d.events, [k]: v } }))
+      }), draft => ({
+        server: draft.server,
+        phoneApproval: {
+          enabled: draft.phoneApproval.enabled,
+          questions: draft.phoneApproval.questions,
+          publicUrl: draft.phoneApproval.publicUrl.trim(),
+          ttlSeconds: Number(draft.phoneApproval.ttlSeconds),
+        },
+      }))
+      const { draft, setDraft, disabled, toggleRow, fieldRow } = card
       const setPhone = (k, v) => setDraft(d => ({ ...d, phoneApproval: { ...d.phoneApproval, [k]: v } }))
-      const toggleRow = (label, checked, onChange, hint) => h('div', { className: 'dpa-row' },
-        h('div', { className: 'dpa-label' }, h('span', null, label), hint ? h('span', { className: 'dpa-sub' }, hint) : null),
-        h(Switch, { checked, onChange, label, disabled: !writable || busy }))
-      const fieldRow = (label, input, hint) => h('div', { className: 'dpa-row' },
-        h('div', { className: 'dpa-label' }, h('span', null, label), hint ? h('span', { className: 'dpa-sub' }, hint) : null),
-        input)
-      const save = () => run(async () => {
-        await call('/config', {
-          patch: {
-            events: draft.events,
-            includeDetails: draft.includeDetails,
-            minTurnSeconds: Number(draft.minTurnSeconds),
-            server: draft.server,
-            phoneApproval: {
-              enabled: draft.phoneApproval.enabled,
-              questions: draft.phoneApproval.questions,
-              publicUrl: draft.phoneApproval.publicUrl.trim(),
-              ttlSeconds: Number(draft.phoneApproval.ttlSeconds),
-            },
-          },
-        })
-        initial.current = JSON.stringify(draft)
-        // The plugin restarts with the new options; give it a moment before re-reading.
-        await new Promise(resolve => setTimeout(resolve, 1200))
-      }, t('saved'))
       return h('section', { className: 'dpa-card' },
-        h('div', { className: 'dpa-head' }, h('h3', { className: 'dpa-title' }, t('optionsTitle'))),
+        h('div', { className: 'dpa-head' }, h('h3', { className: 'dpa-title' }, t('phoneOptionsTitle'))),
         h('div', null,
-          toggleRow(t('evApproval'), draft.events.approval, v => setEvent('approval', v)),
-          toggleRow(t('evQuestion'), draft.events.question, v => setEvent('question', v)),
-          toggleRow(t('evCompleted'), draft.events.completed, v => setEvent('completed', v)),
-          toggleRow(t('evError'), draft.events.error, v => setEvent('error', v)),
-          toggleRow(t('includeDetails'), draft.includeDetails, v => setDraft(d => ({ ...d, includeDetails: v })), t('includeDetailsHint')),
-          fieldRow(t('minTurn'), h('input', {
-            className: 'dpa-input num', inputMode: 'numeric', value: draft.minTurnSeconds, disabled: !writable || busy,
-            'aria-label': t('minTurn'), onChange: e => setDraft(d => ({ ...d, minTurnSeconds: e.target.value })),
-          })),
           toggleRow(t('phoneEnabled'), draft.phoneApproval.enabled, v => setPhone('enabled', v)),
-          toggleRow(t('phoneQuestions'), draft.phoneApproval.questions, v => setPhone('questions', v), t('phoneQuestionsHint')),
+          toggleRow(t('phoneQuestions'), draft.phoneApproval.questions, v => setPhone('questions', v), t('phoneQuestionsHint'), !draft.phoneApproval.enabled),
           fieldRow(t('publicUrl'), h('input', {
             className: 'dpa-input', placeholder: status.tailscale && status.tailscale.url || 'https://', value: draft.phoneApproval.publicUrl,
-            disabled: !writable || busy || !draft.phoneApproval.enabled, 'aria-label': t('publicUrl'),
+            disabled: disabled || !draft.phoneApproval.enabled, 'aria-label': t('publicUrl'),
             onChange: e => setPhone('publicUrl', e.target.value),
           }), t('publicUrlHint')),
           fieldRow(t('ttl'), h('input', {
             className: 'dpa-input num', inputMode: 'numeric', value: draft.phoneApproval.ttlSeconds,
-            disabled: !writable || busy || !draft.phoneApproval.enabled, 'aria-label': t('ttl'),
+            disabled: disabled || !draft.phoneApproval.enabled, 'aria-label': t('ttl'),
             onChange: e => setPhone('ttlSeconds', e.target.value),
           })),
           fieldRow(t('barkServer'), h('input', {
-            className: 'dpa-input', value: draft.server, disabled: !writable || busy, 'aria-label': t('barkServer'),
+            className: 'dpa-input', value: draft.server, disabled, 'aria-label': t('barkServer'),
             onChange: e => setDraft(d => ({ ...d, server: e.target.value })),
-          }))),
-        h('div', { className: 'dpa-footer' },
-          h(Message, { msg: !writable ? { text: t('readOnly') } : msg }),
-          h('button', { type: 'button', className: 'dpa-btn primary', disabled: !writable || busy || !dirty, onClick: save },
-            busy ? t('saving') : t('saveOptions'))))
+          }), t('barkServerHint'))),
+        card.footer)
     }
 
     function SettingsPage({ t }) {
@@ -440,6 +624,8 @@ window.__ModuleLoader__.load({
       } else {
         body = [
           h(BarkCard, { key: 'bark', t, status: state.status, reload }),
+          h(EncryptionCard, { key: 'enc', t, status: state.status, reload }),
+          h(MessagesCard, { key: `msg-${JSON.stringify(state.status.config)}`, t, status: state.status, reload }),
           h(PhoneCard, { key: 'phone', t, status: state.status, reload }),
           h(OptionsCard, { key: `options-${JSON.stringify(state.status.config)}`, t, status: state.status, reload }),
         ]

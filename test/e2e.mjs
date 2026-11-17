@@ -66,6 +66,7 @@ function assert(challenge, { tamper = false } = {}) {
 const pushes = []
 const realFetch = globalThis.fetch
 globalThis.fetch = async (url, init) => {
+  if (String(url).includes('api.day.app/ping')) return { ok: true, status: 200, text: async () => '' }
   if (String(url).includes('api.day.app')) {
     pushes.push(JSON.parse(init.body))
     return { ok: true, status: 200, text: async () => '' }
@@ -143,14 +144,69 @@ status = (await adminCall('/status')).json
 check('legacy passkey migrated', status.phone.passkey.enrolled === true && records.has('phone-approval/passkey') && !records.has('bark-notify/passkey'))
 check('reset passkey', (await adminCall('/passkey/reset', {})).status === 200 && !records.has('phone-approval/passkey'))
 
+const session = { id: 'sess1234abcd', header: {} }
+const agent = { session }
+
+// --- push encryption
+const { decryptPush } = await import(new URL('../bark-crypto.js', import.meta.url))
+status = (await adminCall('/status')).json
+check('status reports Bark server reachable + encryption off', status.bark.serverOk === true && status.encryption.configured === false)
+const generated = (await adminCall('/encryption/generate', {})).json
+check('generate returns a 32-char key and 16-char iv', generated.key.length === 32 && generated.iv.length === 16)
+status = (await adminCall('/status')).json
+check('new key starts disabled', status.encryption.configured && !status.encryption.enabled)
+check('reveal returns the same key', (await adminCall('/encryption/reveal', {})).json.key === generated.key)
+await adminCall('/test-push', {})
+check('pushes stay plaintext until enabled', typeof pushes.at(-1).title === 'string' && pushes.at(-1).ciphertext === undefined)
+await adminCall('/encryption/test', {})
+let sent = pushes.at(-1)
+check('encrypted test push hides everything', sent.ciphertext && sent.iv && sent.title === undefined && sent.body === undefined
+  && Object.keys(sent).sort().join() === 'ciphertext,device_key,iv')
+check('encrypted test push decrypts with the key', decryptPush(sent, generated.key).title === '🔒 DSH 加密测试推送')
+await adminCall('/encryption/enable', { enabled: true })
+await adminCall('/test-push', {})
+sent = pushes.at(-1)
+const opened = decryptPush(sent, generated.key)
+check('enabled: regular pushes are encrypted with fresh IVs', Boolean(sent.ciphertext) && sent.iv !== pushes.at(-2).iv
+  && opened.title === '🔔 DSH 测试推送' && opened.level === 'active' && opened.group === 'DSH')
+await adminCall('/encryption/enable', { enabled: false })
+await adminCall('/test-push', {})
+check('disabled again: plaintext', pushes.at(-1).ciphertext === undefined)
+await adminCall('/encryption/clear', {})
+check('clear removes the key', (await adminCall('/status')).json.encryption.configured === false)
+// Re-enable for the approval flows below, so they also exercise encrypted links.
+const flowKey = (await adminCall('/encryption/generate', {})).json.key
+await adminCall('/encryption/enable', { enabled: true })
+const lastPush = () => {
+  const raw = pushes.at(-1)
+  return raw.ciphertext ? { device_key: raw.device_key, ...decryptPush(raw, flowKey) } : raw
+}
+
+// --- which messages to push: finished turns
+const finishTurn = (sources) => {
+  handlers['session/event'](session, { type: 'turn/start', data: { turn: 1 }, time: 0 })
+  for (const kind of sources) handlers['session/event'](session, { type: 'user/message', data: { source: { kind } }, time: 0 })
+  handlers['session/event'](session, { type: 'assistant/message', data: { message: { content: '**完成**了' } }, time: 0 })
+  handlers['session/event'](session, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } }, time: 99999 })
+}
+let count = pushes.length
+finishTurn(['subagent-settled', 'time-context'])
+await sleep(50)
+check('automatic turn (subagent result) does not push "completed"', pushes.length === count)
+finishTurn(['user', 'time-context'])
+await sleep(50)
+check('turn you started pushes "completed"', pushes.length === count + 1 && lastPush().title.startsWith('✅') && lastPush().body === '完成了')
+count = pushes.length
+finishTurn(['goal'])
+await sleep(50)
+check('goal round stays quiet', pushes.length === count)
+
 // --- approval flows
 const base = `http://127.0.0.1:${PORT}`
 const api = (token, path = '', body, origin = ORIGIN) => realFetch(`${base}/api/a/${token}${path}`, body === undefined
   ? {}
   : { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) })
   .then(async r => ({ status: r.status, json: await r.json() }))
-const session = { id: 'sess1234abcd', header: {} }
-const agent = { session }
 handlers['session/event'](session, { type: 'tool/call', data: { callId: 'c1', name: 'bash', arguments: JSON.stringify({ command: 'rm -rf build && npm run deploy', workdir: '/repo' }) }, time: 0 })
 
 function startApproval() {
@@ -162,12 +218,12 @@ function startApproval() {
   const result = handlers['approval/request'](req, next)
   return { result, toolSignal, desktop: () => desktopSignal, resolveDesktop: o => resolveDesktop(o) }
 }
-const tokenOf = () => new URL(pushes.at(-1).url).pathname.split('/').pop()
+const tokenOf = () => new URL(lastPush().url).pathname.split('/').pop()
 
 let a = startApproval()
 await sleep(50)
 let t = tokenOf()
-check('push carries link + markdown stripped', pushes.at(-1).url.startsWith(`${ORIGIN}/a/`) && !pushes.at(-1).body.includes('**'))
+check('push carries link + markdown stripped', lastPush().url.startsWith(`${ORIGIN}/a/`) && !lastPush().body.includes('**'))
 const page = await realFetch(`${base}/a/${t}`)
 check('page served', page.status === 200 && (await page.text()).includes('DSH 审批'))
 let v = (await api(t)).json
@@ -242,7 +298,7 @@ check('no plain question push when phone questions are ready', pushes.length ===
 let q = startQuestion()
 await sleep(50)
 t = tokenOf()
-check('question push carries link', pushes.at(-1).title.startsWith('❓') && pushes.at(-1).url.startsWith(`${ORIGIN}/a/`) && pushes.at(-1).body.includes('确认发布吗'))
+check('question push carries link', lastPush().title.startsWith('❓') && lastPush().url.startsWith(`${ORIGIN}/a/`) && lastPush().body.includes('确认发布吗'))
 v = (await api(t)).json
 check('question view lists options', v.kind === 'question' && v.questions[0].options.length === 2 && v.enrolled === true && Boolean(v.challenge))
 check('answer without Face ID rejected', (await api(t, '/decide', { decision: 'answer', answers: GO })).status === 403)
