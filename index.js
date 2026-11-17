@@ -652,7 +652,7 @@ export function apply(ctx, rawConfig) {
     'POST /test-push': async () => {
       const result = await push({
         title: '🔔 DSH 测试推送',
-        body: phoneActive() ? '推送正常。手机审批已就绪，点开可打开审批页地址。' : '推送正常。',
+        body: phoneActive() ? '推送正常。点开可检查手机能否连到审批服务。' : '推送正常。',
         level: 'active',
         url: phone.base,
       })

@@ -25,6 +25,16 @@ const SECURITY_HEADERS = {
 
 const newChallenge = () => b64url(randomBytes(32))
 
+const escapeHtml = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
+
+/** A minimal static HTML page for links opened outside an approval flow. */
+function infoPage(title, detail) {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
+<title>DSH</title><style>body{margin:0;padding:48px 24px;font:17px/1.5 -apple-system,"PingFang SC",sans-serif;text-align:center}
+h1{font-size:22px}p{color:#888}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p></body></html>`
+}
+
 export class PhoneApproval {
   /**
    * @param options - { logger, getCredentials, host, port, ttlSeconds }
@@ -250,7 +260,16 @@ export class PhoneApproval {
       res.end(PAGE_HTML)
       return
     }
-    if (parts[0] !== 'api' || parts[1] !== 'a' || parts.length < 3) {
+    if (parts[0] !== 'api') {
+      // Pages a phone opens directly (the test push link, a mistyped link) get HTML,
+      // never JSON, which iOS Safari would offer as a "document.json" download.
+      const home = req.method === 'GET' && parts.length === 0
+      res.writeHead(home ? 200 : 404, { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' })
+      res.end(infoPage(home ? '✅ 手机能连到 DSH 审批服务' : '链接无效或已失效',
+        home ? '审批和提问推送里的链接会在这里打开。' : '请回到电脑上处理。'))
+      return
+    }
+    if (parts[1] !== 'a' || parts.length < 3) {
       this.json(res, 404, { error: 'not found' })
       return
     }

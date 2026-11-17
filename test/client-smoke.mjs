@@ -12,17 +12,25 @@ const check = (name, ok) => {
 }
 
 // Single-pass stub React: hooks return initial values, effects do not run.
+// It also enforces React's hook-order rule: every render of one component type must
+// call the same number of hooks, or real React throws and blanks the page.
+let currentHooks
+const hookCounts = new Map()
+const hook = () => { if (currentHooks) currentHooks.count += 1 }
 const React = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() }),
   useState: (init) => {
-    const value = typeof init === 'function' ? init() : init
+    hook()
+    let value = typeof init === 'function' ? init() : init
+    // Let a test render components as if a null state (such as a revealed secret) were set.
+    if (value === null && React.seedNull) value = React.seedNull
     // Let a test jump the page straight to a loaded state.
     if (value && value.kind === 'loading' && React.readyStatus) return [{ kind: 'ready', status: React.readyStatus }, () => {}]
     return [value, () => {}]
   },
-  useEffect: () => {},
-  useCallback: fn => fn,
-  useRef: value => ({ current: value }),
+  useEffect: () => { hook() },
+  useCallback: (fn) => { hook(); return fn },
+  useRef: (value) => { hook(); return { current: value } },
 }
 
 let module
@@ -59,8 +67,20 @@ check('zh and en share keys', JSON.stringify(Object.keys(dictionaries.phoneAppro
 
 const t = key => dictionaries.phoneApproval.zh[key] ?? `[${key}]`
 const text = node => (node == null || typeof node === 'boolean' ? '' : typeof node !== 'object' ? String(node)
-  : Array.isArray(node) ? node.map(text).join('') : typeof node.type === 'function' ? text(node.type(node.props))
+  : Array.isArray(node) ? node.map(text).join('') : typeof node.type === 'function' ? text(renderComponent(node))
   : (node.children ?? []).map(text).join(''))
+function renderComponent(node) {
+  const outer = currentHooks
+  currentHooks = { count: 0 }
+  try {
+    return node.type(node.props)
+  } finally {
+    const counts = hookCounts.get(node.type) ?? new Set()
+    counts.add(currentHooks.count)
+    hookCounts.set(node.type, counts)
+    currentHooks = outer
+  }
+}
 
 const icon = entry.component({ size: 16 })
 check('icon renders svg', icon.type === 'svg' && icon.props.width === 16)
@@ -97,7 +117,20 @@ for (const encryption of [{ ...baseStatus.encryption }, { ...baseStatus.encrypti
     && !/\[\w+\]/.test(rendered))
   if (rendered.startsWith('THREW')) console.log(rendered)
 }
+// Render again with every null state set (the encryption key revealed, messages shown).
+React.seedNull = { key: 'K'.repeat(32), iv: 'I'.repeat(16), text: 'msg', tone: 'ok' }
+for (const encryption of [{ ...baseStatus.encryption }, { ...baseStatus.encryption, enabled: true }]) {
+  React.readyStatus = { ...baseStatus, encryption }
+  let rendered = ''
+  try { rendered = text(main.component({ t })) } catch (error) { rendered = 'THREW ' + error.message }
+  check(`page renders with the key revealed (encryption ${encryption.enabled ? 'on' : 'pending'})`,
+    !rendered.startsWith('THREW') && rendered.includes('K'.repeat(32)) && rendered.includes('复制'))
+}
+React.seedNull = undefined
 React.readyStatus = undefined
+const unstable = [...hookCounts].filter(([, counts]) => counts.size > 1).map(([fn, counts]) => `${fn.name}: ${[...counts]}`)
+check('every component calls the same number of hooks on every render', unstable.length === 0)
+if (unstable.length) console.log('  hook counts changed:', unstable.join('; '))
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`)
 process.exit(failures === 0 ? 0 : 1)

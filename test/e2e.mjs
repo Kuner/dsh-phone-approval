@@ -376,7 +376,12 @@ await q.result.catch(() => {})
 check('cancelled question closes the link', (await api(t)).json.status === 'cancelled')
 
 check('unknown token 404', (await api('zzz')).status === 404)
-check('root 404', (await realFetch(`${base}/`)).status === 404)
+{
+  const home = await realFetch(`${base}/`)
+  check('root serves an HTML status page, not JSON', home.status === 200 && home.headers.get('content-type').startsWith('text/html') && (await home.text()).includes('手机能连到'))
+  const stray = await realFetch(`${base}/whatever`)
+  check('stray page links get HTML 404', stray.status === 404 && stray.headers.get('content-type').startsWith('text/html'))
+}
 check('stripMarkdown', stripMarkdown('## 标题\n**粗体** `code` [link](http://x)') === '标题\n粗体 code link')
 
 for (const dispose of effects) dispose()

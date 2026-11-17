@@ -273,6 +273,7 @@ window.__ModuleLoader__.load({
 .dpa-seg button[aria-pressed="true"] { background:var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover)); color:var(--dsw-alias-label-primary); font-weight:500; }
 .dpa-seg button:disabled { cursor:default; opacity:.6; }
 .dpa-kv { display:grid; grid-template-columns:auto 1fr auto; gap:8px 12px; align-items:center; }
+.dpa-kv-row { display:contents; }
 .dpa-kv-k { color:var(--dsw-alias-label-secondary); font-size:13px; }
 .dpa-code { font-family:var(--dsw-font-mono, ui-monospace, Menlo, monospace); font-size:13px; word-break:break-all; user-select:all; }
 .dpa-footer { display:flex; align-items:center; justify-content:flex-end; gap:12px; }
@@ -432,18 +433,19 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // A real component (rendered with h), so its useState never shifts the parent's hook order.
+    // The wrapper uses display:contents so its three cells still sit in the parent grid.
     function CopyField({ t, label, value, hint }) {
       const [copied, setCopied] = useState(false)
-      return [
-        h('span', { key: 'k', className: 'dpa-kv-k' }, label),
-        h('div', { key: 'v' },
+      return h('div', { className: 'dpa-kv-row' },
+        h('span', { className: 'dpa-kv-k' }, label),
+        h('div', null,
           h('div', { className: 'dpa-code' }, value),
           hint ? h('div', { className: 'dpa-sub' }, hint) : null),
         h('button', {
-          key: 'b', type: 'button', className: 'dpa-btn small',
+          type: 'button', className: 'dpa-btn small',
           onClick: async () => { if (await copyText(value)) { setCopied(true); setTimeout(() => setCopied(false), 1500) } },
-        }, copied ? t('copied') : t('copy')),
-      ]
+        }, copied ? t('copied') : t('copy')))
     }
 
     function EncryptionCard({ t, status, reload }) {
@@ -466,8 +468,8 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dpa-kv-k' }, t('encAlgorithm')), h('span', { className: 'dpa-code' }, enc.algorithm), h('span'),
             h('span', { className: 'dpa-kv-k' }, t('encMode')), h('span', { className: 'dpa-code' }, enc.mode), h('span'),
             h('span', { className: 'dpa-kv-k' }, t('encPadding')), h('span', { className: 'dpa-code' }, enc.padding), h('span'),
-            ...CopyField({ t, label: t('encKey'), value: secret.key }),
-            ...CopyField({ t, label: t('encIv'), value: secret.iv, hint: t('encIvHint') }))) : null,
+            h(CopyField, { key: 'key', t, label: t('encKey'), value: secret.key }),
+            h(CopyField, { key: 'iv', t, label: t('encIv'), value: secret.iv, hint: t('encIvHint') }))) : null,
         h('div', { className: 'dpa-inline' },
           !enc.configured ? btn(t('encGenerate'), () => run(async () => setSecret(await call('/encryption/generate', {}))), 'primary') : null,
           enc.configured ? btn(t('encTest'), () => run(() => call('/encryption/test', {}), t('encTestSent'))) : null,
