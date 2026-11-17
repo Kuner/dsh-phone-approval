@@ -8,7 +8,7 @@
 
 - DeepSeek Harness 桌面版：从安装包中读取主题样式表。
 - Google Chrome。
-- Node.js 20 及以上，以及 npm：首次运行时安装 React 18。React 19 不再提供 UMD 构建，因此固定使用 18。
+- Node.js 22 及以上，以及 npm：首次运行时安装 React 18。React 19 不再提供 UMD 构建，因此固定使用 18。
 - Python 3 和 Pillow：裁剪和拼接图片。
 
 ## 运行

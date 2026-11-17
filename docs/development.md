@@ -90,7 +90,7 @@ sequenceDiagram
 
 ## 测试
 
-需要 Node.js 20 及以上。
+需要 Node.js 22 及以上。
 
 ```sh
 npm run check   # 语法检查
@@ -100,7 +100,7 @@ npm test        # 端到端测试和设置页测试
 - `test/e2e.mjs`：模拟 DSH 上下文，用软件实现的 WebAuthn 认证器覆盖注册、批准、拒绝、回答、电脑先处理、取消、过期、加密推送、消息过滤、启动时序等场景。Bark 请求会被拦截，不会真正发出。
 - `test/client-smoke.mjs`：用简化的 React 实现加载 `client.js`，检查注册项和各状态下的渲染，并检查每个组件在不同渲染中调用的 hook 数量一致（React 的 hook 规则）。
 
-每次推送到 `main` 和每个 PR 都会由 GitHub Actions 在 Node.js 20 和 22 上运行上述两条命令，配置见 `.github/workflows/test.yml`。
+每次推送到 `main` 和每个 PR 都会由 GitHub Actions 在 Node.js 22 和 24 上运行上述两条命令，配置见 `.github/workflows/test.yml`。
 
 测试会占用本机端口 47396–47399。其中一个用例会调用本机的 `tailscale` 命令；没有安装 Tailscale 时，该用例的结果不受影响。
 

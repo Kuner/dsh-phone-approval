@@ -34,7 +34,7 @@
     "screenshots": "tools/screenshots/capture.sh"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dsh": {
     "bundle": {
