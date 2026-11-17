@@ -1,5 +1,7 @@
 # dsh-phone-approval
 
+[![test](https://github.com/Kuner/dsh-phone-approval/actions/workflows/test.yml/badge.svg)](https://github.com/Kuner/dsh-phone-approval/actions/workflows/test.yml)
+
 DeepSeek Harness（DSH）插件。DSH 需要人工处理的事项（权限审批、agent 提问）会通过 [Bark](https://bark.day.app) 推送到 iPhone，并可以直接在手机上处理。批准和提交回答需要通过 Face ID 验证。
 
 <p align="center">
