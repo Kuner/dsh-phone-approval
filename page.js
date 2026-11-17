@@ -27,6 +27,7 @@ export const PAGE_HTML = `<!doctype html>
   .label { color:var(--muted); font-size:13px; margin-bottom:2px; }
   .value { margin-bottom:12px; word-break:break-word; }
   .value:last-child { margin-bottom:0; }
+  #reasonBox + #commandBox { margin-top:12px; }
   pre { background:var(--code); border-radius:10px; padding:10px 12px; margin:0; font-size:13px;
         white-space:pre-wrap; word-break:break-all; max-height:45vh; overflow:auto;
         font-family: ui-monospace, Menlo, monospace; }
